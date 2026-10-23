@@ -52,7 +52,7 @@
     <java.version>21</java.version>
 
     <!-- External dependency versions -->
-    <awssdk.version>2.57.2</awssdk.version>
+    <awssdk.version>2.57.3</awssdk.version>
     <commons-compression.version>1.28.0</commons-compression.version>
     <commons-lang.version>3.21.0</commons-lang.version>
     <failsafe.version>3.3.2</failsafe.version>
@@ -67,7 +67,7 @@
     <opentelemetry-instrumentation.version>2.32.0</opentelemetry-instrumentation.version>
     <postgres.version>42.7.14</postgres.version>
     <sentry.version>8.61.1</sentry.version>
-    <spring-boot.version>4.1.1</spring-boot.version>
+    <spring-boot.version>4.1.2</spring-boot.version>
     <springdoc.version>3.1.1</springdoc.version>
     <!-- Aligned with the minor version pulled in transitively by springdoc -->
     <swagger-annotations.version>2.2.55</swagger-annotations.version>
@@ -76,7 +76,7 @@
     <ph-commons.version>12.5.2</ph-commons.version>
     <ph-telemetry.version>1.1.1</ph-telemetry.version>
     <ph-db.version>8.5.0</ph-db.version>
-    <ph-web.version>11.4.7</ph-web.version>
+    <ph-web.version>11.4.8</ph-web.version>
     <ph-oton.version>10.7.0</ph-oton.version>
     <peppol-commons.version>13.2.1</peppol-commons.version>
     <phive.version>12.2.0</phive.version>
