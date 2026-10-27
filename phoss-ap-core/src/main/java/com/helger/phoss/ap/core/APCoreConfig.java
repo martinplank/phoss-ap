@@ -348,6 +348,17 @@ public final class APCoreConfig
   }
 
   /**
+   * @return <code>true</code> if a received MLS that could not be correlated with an outbound
+   *         transaction should not be forwarded by the primary forwarder.
+   * @since 0.14.0
+   */
+  public static boolean isForwardingMlsSkipUncorrelated ()
+  {
+    return _getConfig ().getAsBoolean (APConfigurationProperties.FORWARDING_MLS_SKIP_UNCORRELATED,
+                                       APConfigurationProperties.FORWARDING_MLS_SKIP_UNCORRELATED_DEFAULT);
+  }
+
+  /**
    * @return The configured C4 country code determination modes as an ordered list. May be empty if
    *         no automatic determination is configured (only async API reporting). Never
    *         <code>null</code>.

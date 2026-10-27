@@ -50,7 +50,15 @@ public enum EInboundStatus implements IHasID <String>
   /** Last forwarding attempt failed &mdash; scheduled for retry. */
   FORWARD_FAILED ("forward_failed"),
   /** Max retries exhausted &mdash; no further attempts. */
-  PERMANENTLY_FAILED ("permanently_failed");
+  PERMANENTLY_FAILED ("permanently_failed"),
+  /**
+   * Deliberately not forwarded to the Receiver Backend by the primary forwarder &mdash; a received
+   * MLS that could not be correlated, while <code>forwarding.mls.skip-uncorrelated</code> is
+   * enabled.
+   *
+   * @since 0.14.0
+   */
+  NOT_FORWARDED ("not_forwarded");
 
   private final String m_sID;
 
@@ -73,7 +81,7 @@ public enum EInboundStatus implements IHasID <String>
    */
   public boolean isFinalState ()
   {
-    return this == REJECTED || this == FORWARDED || this == PERMANENTLY_FAILED;
+    return this == REJECTED || this == FORWARDED || this == PERMANENTLY_FAILED || this == NOT_FORWARDED;
   }
 
   /**

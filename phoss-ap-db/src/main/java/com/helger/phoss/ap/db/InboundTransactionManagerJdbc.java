@@ -570,6 +570,7 @@ public class InboundTransactionManagerJdbc extends AbstractAPJdbcManager impleme
     final ConstantPreparedStatementDataProvider aParams = new ConstantPreparedStatementDataProvider (EInboundStatus.REJECTED.getID (),
                                                                                                     EInboundStatus.FORWARDED.getID (),
                                                                                                     EInboundStatus.PERMANENTLY_FAILED.getID (),
+                                                                                                    EInboundStatus.NOT_FORWARDED.getID (),
                                                                                                     EReportingStatus.REPORTED.getID (),
                                                                                                     EReportingStatus.EXCLUDED.getID ());
     String sMlsPendingCondition = "";
@@ -594,7 +595,7 @@ public class InboundTransactionManagerJdbc extends AbstractAPJdbcManager impleme
                                                                       COLS +
                                                                       " FROM " +
                                                                       m_sTableName +
-                                                                      " WHERE status IN (?,?,?) AND reporting_status IN (?,?)" +
+                                                                      " WHERE status IN (?,?,?,?) AND reporting_status IN (?,?)" +
                                                                       sMlsPendingCondition +
                                                                       " ORDER BY completed_dt" +
                                                                       " LIMIT " +

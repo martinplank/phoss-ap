@@ -26,6 +26,7 @@ import static org.junit.Assert.assertTrue;
 import java.util.UUID;
 
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.junit.After;
 import org.junit.ClassRule;
 import org.junit.Test;
@@ -37,11 +38,14 @@ import com.helger.config.fallback.IConfigWithFallback;
 import com.helger.config.source.MultiConfigurationValueProvider;
 import com.helger.config.source.appl.ConfigurationSourceFunction;
 import com.helger.peppol.sbdh.EPeppolMLSType;
+import com.helger.peppolid.peppol.doctype.EPredefinedDocumentTypeIdentifier;
+import com.helger.peppolid.peppol.process.EPredefinedProcessIdentifier;
 import com.helger.phoss.ap.api.IInboundTransactionManager;
 import com.helger.phoss.ap.api.codelist.EInboundStatus;
 import com.helger.phoss.ap.api.codelist.EVerificationRejectionForwarding;
 import com.helger.phoss.ap.api.codelist.EVerificationResult;
 import com.helger.phoss.ap.api.config.APConfigProvider;
+import com.helger.phoss.ap.api.config.APConfigurationProperties;
 import com.helger.phoss.ap.api.model.IInboundTransaction;
 import com.helger.phoss.ap.api.model.VerificationIssue;
 import com.helger.phoss.ap.api.model.VerificationOutcome;
@@ -54,6 +58,11 @@ import com.helger.scope.mock.ScopeTestRule;
  * Integration tests for the persisted verification verdict of {@link InboundOrchestrator}. Unlike
  * {@link InboundOrchestratorVerifierTest}, which only exercises the pure verifier evaluation, these
  * tests need the database, because the verdict is written to the inbound transaction.
+ * <p>
+ * It also covers <code>forwarding.mls.skip-uncorrelated</code>. That cannot go into a separate
+ * test class, because the static DataSourceProvider of the database layer can only be initialised
+ * once per JVM.
+ * </p>
  *
  * @author Philip Helger
  */
@@ -63,6 +72,8 @@ public final class InboundVerificationResultIntegrationTest
   public static final ScopeTestRule RULE = new ScopeTestRule ();
 
   private static final String LOG_PREFIX = "[Test] ";
+  private static final String MLS_DOCTYPE_ID = EPredefinedDocumentTypeIdentifier.PEPPOL_MLS_1_0.getURIEncoded ();
+  private static final String MLS_PROCESS_ID = EPredefinedProcessIdentifier.urn_peppol_edec_mls.getURIEncoded ();
 
   private IConfigWithFallback m_aOldConfig;
 
@@ -95,32 +106,49 @@ public final class InboundVerificationResultIntegrationTest
   }
 
   @NonNull
-  private static IInboundTransaction _createInboundTx ()
+  private static IInboundTransaction _createInboundTx (@NonNull final String sDocTypeID,
+                                                       @NonNull final String sProcessID,
+                                                       @Nullable final String sCorrelatedOutboundTxID)
   {
+    final IInboundTransactionManager aMgr = APJdbcMetaManager.getInboundTransactionMgr ();
     final String sID = "test-" + UUID.randomUUID ();
-    final String sTxID = APJdbcMetaManager.getInboundTransactionMgr ()
-                                          .create (sID,
-                                                   "POP000001",
-                                                   "POP000002",
-                                                   "CN=TestCert",
-                                                   "iso6523-actorid-upis::9915:sender",
-                                                   "iso6523-actorid-upis::9915:receiver",
-                                                   "busdox-docid-qns::urn:test:invoice",
-                                                   "cenbii-procid-ubl::urn:test:process",
-                                                   "/tmp/test-inbound.sbd",
-                                                   2048L,
-                                                   "sha256hash012345678901234567890123456789012345678901234567890123",
-                                                   "test-" + UUID.randomUUID (),
-                                                   APBasicMetaManager.getTimestampMgr ().getCurrentDateTimeUTC (),
-                                                   "test-" + UUID.randomUUID (),
-                                                   "DE",
-                                                   false,
-                                                   false,
-                                                   null,
-                                                   EPeppolMLSType.ALWAYS_SEND);
-    final IInboundTransaction aTx = APJdbcMetaManager.getInboundTransactionMgr ().getByID (sTxID);
+    final String sTxID = aMgr.create (sID,
+                                      "POP000001",
+                                      "POP000002",
+                                      "CN=TestCert",
+                                      "iso6523-actorid-upis::9915:sender",
+                                      "iso6523-actorid-upis::9915:receiver",
+                                      sDocTypeID,
+                                      sProcessID,
+                                      "/tmp/test-inbound.sbd",
+                                      2048L,
+                                      "sha256hash012345678901234567890123456789012345678901234567890123",
+                                      "test-" + UUID.randomUUID (),
+                                      APBasicMetaManager.getTimestampMgr ().getCurrentDateTimeUTC (),
+                                      "test-" + UUID.randomUUID (),
+                                      "DE",
+                                      false,
+                                      false,
+                                      null,
+                                      EPeppolMLSType.ALWAYS_SEND);
+    assertNotNull (sTxID);
+    if (sCorrelatedOutboundTxID != null)
+      assertTrue (aMgr.updateMlsCorrelatedOutboundTransactionID (sTxID, sCorrelatedOutboundTxID).isSuccess ());
+    final IInboundTransaction aTx = aMgr.getByID (sTxID);
     assertNotNull (aTx);
     return aTx;
+  }
+
+  @NonNull
+  private static IInboundTransaction _createInboundTx ()
+  {
+    return _createInboundTx ("busdox-docid-qns::urn:test:invoice", "cenbii-procid-ubl::urn:test:process", null);
+  }
+
+  @NonNull
+  private static IInboundTransaction _createUncorrelatedMls ()
+  {
+    return _createInboundTx (MLS_DOCTYPE_ID, MLS_PROCESS_ID, null);
   }
 
   @Test
@@ -324,5 +352,51 @@ public final class InboundVerificationResultIntegrationTest
     final IInboundTransaction aUpdated = aMgr.getByID (aTx.getID ());
     assertNotNull (aUpdated);
     assertFalse (InboundOrchestrator.isMlsSuppressedAfterRejection (aUpdated));
+  }
+
+  @Test
+  public void testSkipUncorrelatedMlsDisabledByDefault ()
+  {
+    assertFalse (InboundOrchestrator.isSkipPrimaryForwarding (_createUncorrelatedMls ()));
+  }
+
+  @Test
+  public void testSkipUncorrelatedMlsExplicitlyDisabled ()
+  {
+    _overrideConfig (APConfigurationProperties.FORWARDING_MLS_SKIP_UNCORRELATED, "false");
+    assertFalse (InboundOrchestrator.isSkipPrimaryForwarding (_createUncorrelatedMls ()));
+  }
+
+  @Test
+  public void testSkipOnlyUncorrelatedMls ()
+  {
+    _overrideConfig (APConfigurationProperties.FORWARDING_MLS_SKIP_UNCORRELATED, "true");
+
+    assertTrue (InboundOrchestrator.isSkipPrimaryForwarding (_createUncorrelatedMls ()));
+    // A correlated MLS is forwarded
+    assertFalse (InboundOrchestrator.isSkipPrimaryForwarding (_createInboundTx (MLS_DOCTYPE_ID,
+                                                                                MLS_PROCESS_ID,
+                                                                                "outbound-" + UUID.randomUUID ())));
+    // A business document is never correlated, but is always forwarded
+    assertFalse (InboundOrchestrator.isSkipPrimaryForwarding (_createInboundTx ()));
+  }
+
+  @Test
+  public void testSkippedUncorrelatedMlsEndsInNotForwarded ()
+  {
+    _overrideConfig (APConfigurationProperties.FORWARDING_MLS_SKIP_UNCORRELATED, "true");
+
+    final IInboundTransaction aTx = _createUncorrelatedMls ();
+    // A deliberate skip is not a forwarding failure
+    assertTrue (InboundOrchestrator.forwardDocument (LOG_PREFIX, aTx).isSuccess ());
+
+    final IInboundTransaction aUpdated = APJdbcMetaManager.getInboundTransactionMgr ().getByID (aTx.getID ());
+    assertNotNull (aUpdated);
+    assertSame (EInboundStatus.NOT_FORWARDED, aUpdated.getStatus ());
+    assertTrue (aUpdated.getStatus ().isFinalState ());
+    assertNotNull (aUpdated.getCompletedDT ());
+    // Nothing was attempted
+    assertEquals (0, aUpdated.getAttemptCount ());
+    assertTrue (APJdbcMetaManager.getInboundForwardingAttemptMgr ().getByTransactionID (aTx.getID ()).isEmpty ());
   }
 }

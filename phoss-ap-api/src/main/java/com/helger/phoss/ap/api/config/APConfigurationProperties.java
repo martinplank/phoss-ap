@@ -150,6 +150,17 @@ public final class APConfigurationProperties
    * @since 0.10.0
    */
   public static final String FORWARDING_SPI_ID_SUFFIX = "spi.id";
+  /**
+   * If <code>true</code>, a received MLS that could not be correlated with an outbound transaction
+   * - because the referenced outbound transaction is unknown, or because an MLS was already
+   * received for it - is not forwarded by the primary forwarder. The secondary forwarders still
+   * receive it.
+   *
+   * @since 0.14.0
+   */
+  public static final String FORWARDING_MLS_SKIP_UNCORRELATED = "forwarding.mls.skip-uncorrelated";
+  /** @since 0.14.0 */
+  public static final boolean FORWARDING_MLS_SKIP_UNCORRELATED_DEFAULT = false;
 
   // Forwarding - Secondary forwarders (since 0.9.0)
   /**

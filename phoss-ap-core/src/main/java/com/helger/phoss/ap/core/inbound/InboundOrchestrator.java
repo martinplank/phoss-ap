@@ -66,6 +66,7 @@ import com.helger.phoss.ap.api.codelist.EVerificationIssueLevel;
 import com.helger.phoss.ap.api.codelist.EVerificationOutcomeCategory;
 import com.helger.phoss.ap.api.codelist.EVerificationRejectionForwarding;
 import com.helger.phoss.ap.api.codelist.EVerificationResult;
+import com.helger.phoss.ap.api.config.APConfigurationProperties;
 import com.helger.phoss.ap.api.datetime.IAPTimestampManager;
 import com.helger.phoss.ap.api.mgr.IDocumentForwarder;
 import com.helger.phoss.ap.api.mgr.IDocumentPayloadManager;
@@ -1360,15 +1361,93 @@ public final class InboundOrchestrator
   }
 
   /**
+   * Determine the C4 country code of a forwarded inbound transaction and store the Peppol Reporting
+   * item if possible. If the C4 country code cannot be determined, the reporting item is created
+   * later via the inbound reporting API.
+   *
+   * @param sLogPrefix
+   *        Log message prefix. May not be <code>null</code>.
+   * @param aInboundTx
+   *        The affected inbound transaction. May not be <code>null</code>.
+   * @param sC4CountryCodeFromForwarder
+   *        The C4 country code provided synchronously by the forwarder. May be <code>null</code>.
+   */
+  private static void _storeInboundReporting (@NonNull final String sLogPrefix,
+                                              @NonNull final IInboundTransaction aInboundTx,
+                                              @Nullable final String sC4CountryCodeFromForwarder)
+  {
+    final IInboundTransactionManager aTxMgr = APJdbcMetaManager.getInboundTransactionMgr ();
+
+    // Determine C4 country code: either from sync response or via configured resolution modes
+    String sC4CountryCode = sC4CountryCodeFromForwarder;
+    if (sC4CountryCode == null)
+    {
+      sC4CountryCode = Telemetry.withSpan (CPhossAPOtel.SPAN_INBOUND_C4_RESOLVE,
+                                           ETelemetrySpanKind.INTERNAL,
+                                           aResolveSpan -> {
+                                             aResolveSpan.setAttribute (CPhossAPOtel.ATTR_TRANSACTION_ID,
+                                                                        aInboundTx.getID ())
+                                                         .setAttribute (CPhossAPOtel.ATTR_RECEIVER_ID,
+                                                                        aInboundTx.getReceiverID ());
+                                             return C4CountryCodeResolver.resolve (aInboundTx);
+                                           });
+    }
+
+    if (sC4CountryCode != null)
+    {
+      // We can store the reporting item immediately
+      aTxMgr.updateC4CountryCode (aInboundTx.getID (), sC4CountryCode);
+      if (APPeppolReportingHelper.createInboundPeppolReportingItem (aInboundTx.getID ()).isFailure ())
+      {
+        LOGGER.error (sLogPrefix +
+                      "Forwarding finished, but failed to store Peppol Reporting entry for '" +
+                      aInboundTx.getID () +
+                      "'");
+      }
+    }
+    else
+      if (APPeppolReportingHelper.isExcludedFromReporting (aInboundTx.getSenderID (), aInboundTx.getReceiverID ()))
+      {
+        // A transaction that is not counted anyway needs no C4 country code - close the reporting
+        // status, so that it is neither queried via the API nor blocks the archival
+        APPeppolReportingHelper.createInboundPeppolReportingItem (aInboundTx.getID ());
+      }
+  }
+
+  /**
+   * Check if the provided inbound transaction is deliberately not forwarded by the primary
+   * forwarder. This is the case for a received MLS that could not be correlated with an outbound
+   * transaction, if <code>forwarding.mls.skip-uncorrelated</code> is enabled.
+   *
+   * @param aInboundTx
+   *        The inbound transaction to check. May not be <code>null</code>.
+   * @return <code>true</code> if the primary forwarding is skipped, <code>false</code> if not.
+   * @since 0.14.0
+   */
+  @VisibleForTesting
+  static boolean isSkipPrimaryForwarding (@NonNull final IInboundTransaction aInboundTx)
+  {
+    return APCoreConfig.isForwardingMlsSkipUncorrelated () &&
+           CPhossAP.isMLS (aInboundTx.getDocTypeID (), aInboundTx.getProcessID ()) &&
+           StringHelper.isEmpty (aInboundTx.getMlsCorrelatedOutboundTransactionID ());
+  }
+
+  /**
    * Forward a received inbound document to the configured C4 endpoint. Handles retry scheduling
    * with exponential backoff and triggers MLS rejection responses when maximum retries are
    * exhausted.
+   * <p>
+   * If <code>forwarding.mls.skip-uncorrelated</code> is enabled, a received MLS that could not be
+   * correlated with an outbound transaction is not forwarded by the primary forwarder, but ends in
+   * {@link EInboundStatus#NOT_FORWARDED}. The secondary forwarders still receive it.
+   * </p>
    *
    * @param sLogPrefix
    *        Log message prefix for traceability. May not be <code>null</code>.
    * @param aInboundTx
    *        The inbound transaction to forward. May not be <code>null</code>.
-   * @return {@link ESuccess#SUCCESS} if forwarding succeeded, {@link ESuccess#FAILURE} otherwise.
+   * @return {@link ESuccess#SUCCESS} if forwarding succeeded or was deliberately skipped,
+   *         {@link ESuccess#FAILURE} otherwise.
    */
   @NonNull
   public static ESuccess forwardDocument (@NonNull final String sLogPrefix,
@@ -1377,6 +1456,31 @@ public final class InboundOrchestrator
     final IInboundTransactionManager aTxMgr = APJdbcMetaManager.getInboundTransactionMgr ();
     final IInboundForwardingAttemptManager aAttemptMgr = APJdbcMetaManager.getInboundForwardingAttemptMgr ();
     final IAPTimestampManager aTimestampMgr = APBasicMetaManager.getTimestampMgr ();
+
+    if (isSkipPrimaryForwarding (aInboundTx))
+    {
+      LOGGER.info (sLogPrefix +
+                   "Not forwarding the uncorrelated inbound MLS '" +
+                   aInboundTx.getID () +
+                   "' to the primary forwarder, because '" +
+                   APConfigurationProperties.FORWARDING_MLS_SKIP_UNCORRELATED +
+                   "' is enabled");
+      aTxMgr.updateStatusCompleted (aInboundTx.getID (), EInboundStatus.NOT_FORWARDED);
+
+      // The MLS was received via Peppol, so it is counted like any other received document.
+      // Note: whether a received MLS that was not forwarded to C4 must be part of the Peppol
+      // Reporting is currently not covered by the Peppol specifications and needs clarification
+      _storeInboundReporting (sLogPrefix, aInboundTx, null);
+
+      // The secondary forwarders still receive it
+      _dispatchFireAndForget (sLogPrefix,
+                              aInboundTx,
+                              APCoreMetaManager.getAllSecondaryForwarders (),
+                              "forward-secondary",
+                              CPhossAPOtel.SPAN_INBOUND_FORWARD_SECONDARY,
+                              "Secondary forwarding");
+      return ESuccess.SUCCESS;
+    }
 
     boolean bForwardSuccess = false;
     try (final ITelemetrySpan aSpan = Telemetry.startSpan (CPhossAPOtel.SPAN_INBOUND_FORWARD,
@@ -1475,43 +1579,7 @@ public final class InboundOrchestrator
 
               bForwardSuccess = true;
 
-              // Determine C4 country code: either from sync response or via configured resolution
-              // modes
-              String sC4CountryCode = aResult.getCountryCodeC4 ();
-              if (sC4CountryCode == null)
-              {
-                sC4CountryCode = Telemetry.withSpan (CPhossAPOtel.SPAN_INBOUND_C4_RESOLVE,
-                                                     ETelemetrySpanKind.INTERNAL,
-                                                     aResolveSpan -> {
-                                                       aResolveSpan.setAttribute (CPhossAPOtel.ATTR_TRANSACTION_ID,
-                                                                                  aInboundTx.getID ())
-                                                                   .setAttribute (CPhossAPOtel.ATTR_RECEIVER_ID,
-                                                                                  aInboundTx.getReceiverID ());
-                                                       return C4CountryCodeResolver.resolve (aInboundTx);
-                                                     });
-              }
-
-              if (sC4CountryCode != null)
-              {
-                // We can store the reporting item immediately
-                aTxMgr.updateC4CountryCode (aInboundTx.getID (), sC4CountryCode);
-                if (APPeppolReportingHelper.createInboundPeppolReportingItem (aInboundTx.getID ()).isFailure ())
-                {
-                  LOGGER.error (sLogPrefix +
-                                "Forwarding successful, but failed to store Peppol Reporting entry for '" +
-                                aInboundTx.getID () +
-                                "'");
-                }
-              }
-              else
-                if (APPeppolReportingHelper.isExcludedFromReporting (aInboundTx.getSenderID (),
-                                                                     aInboundTx.getReceiverID ()))
-                {
-                  // A transaction that is not counted anyway needs no C4 country code - close the
-                  // reporting status, so that it is neither queried via the API nor blocks the
-                  // archival
-                  APPeppolReportingHelper.createInboundPeppolReportingItem (aInboundTx.getID ());
-                }
+              _storeInboundReporting (sLogPrefix, aInboundTx, aResult.getCountryCodeC4 ());
 
               // Fire-and-forget dispatch to all configured secondary forwarders. Failures are
               // logged

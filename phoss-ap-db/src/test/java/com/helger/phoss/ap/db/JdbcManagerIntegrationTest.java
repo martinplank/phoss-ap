@@ -1081,6 +1081,22 @@ public final class JdbcManagerIntegrationTest
   }
 
   @Test
+  public void testInboundGetAllForArchivalNotForwarded ()
+  {
+    final IInboundTransactionManager aMgr = APJdbcMetaManager.getInboundTransactionMgr ();
+    final String sID = _createInboundTx ();
+    assertNotNull (sID);
+
+    aMgr.updateStatusCompleted (sID, EInboundStatus.NOT_FORWARDED);
+    aMgr.updateReportingStatus (sID, EReportingStatus.REPORTED);
+
+    // A deliberately not forwarded transaction is final and must be archived as well
+    final ICommonsList <IInboundTransaction> aList = aMgr.getAllForArchival (100, false);
+    assertNotNull (aList);
+    assertTrue (aList.containsAny (x -> x.getID ().equals (sID)));
+  }
+
+  @Test
   public void testInboundGetAllForArchivalExcludedFromReporting ()
   {
     final IInboundTransactionManager aMgr = APJdbcMetaManager.getInboundTransactionMgr ();
