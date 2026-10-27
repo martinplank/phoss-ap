@@ -125,6 +125,20 @@ public interface IOutboundTransactionManager
   IOutboundTransaction getByID (@NonNull String sID);
 
   /**
+   * Look up a transaction by its unique ID, searching both the active {@code outbound_transaction}
+   * table and the {@code outbound_transaction_archive} table. The active table is queried first;
+   * the archive table is only consulted if no match is found there.
+   *
+   * @param sID
+   *        The transaction ID. Never <code>null</code>.
+   * @return The transaction (from the active table if present, otherwise from the archive), or
+   *         <code>null</code> if not found in either.
+   * @since 0.14.0
+   */
+  @Nullable
+  IOutboundTransaction getByIDIncludingArchive (@NonNull String sID);
+
+  /**
    * Check if the transaction with the provided ID exists in the DB or not.
    *
    * @param sID
@@ -205,7 +219,11 @@ public interface IOutboundTransactionManager
   ESuccess updateStatusCompleted (@NonNull String sID, @NonNull EOutboundStatus eStatus);
 
   /**
-   * Update MLS reception status for an outbound business document.
+   * Update MLS reception status for an outbound business document. Only the first MLS received for
+   * a transaction is stored: the update is only performed while the MLS reception status is still
+   * {@link EMlsReceptionStatus#PENDING}, because the Peppol specifications only require the first
+   * MLS to be considered. The check and the update are a single atomic statement, so that two MLS
+   * received at the same time cannot both win.
    *
    * @param sID
    *        The transaction ID. Never <code>null</code>.
@@ -218,7 +236,9 @@ public interface IOutboundTransactionManager
    * @param sMlsInboundTransactionID
    *        The ID of the inbound transaction representing the received MLS message. May be
    *        <code>null</code>.
-   * @return {@link ESuccess}
+   * @return {@link ESuccess#SUCCESS} if the MLS status was stored, {@link ESuccess#FAILURE} if the
+   *         transaction does not exist or if an MLS was already received for it.
+   * @since 0.14.0 - only the first MLS is stored
    */
   @NonNull
   ESuccess updateMlsStatus (@NonNull String sID,

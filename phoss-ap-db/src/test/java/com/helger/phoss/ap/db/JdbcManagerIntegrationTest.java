@@ -449,6 +449,34 @@ public final class JdbcManagerIntegrationTest
   }
 
   @Test
+  public void testOutboundUpdateMlsStatusOnlyFirstWins ()
+  {
+    final IOutboundTransactionManager aMgr = APJdbcMetaManager.getOutboundTransactionMgr ();
+    final String sID = _createOutboundTx ();
+    assertNotNull (sID);
+    assertEquals (EMlsReceptionStatus.PENDING, aMgr.getByID (sID).getMlsStatus ());
+
+    assertTrue (aMgr.updateMlsStatus (sID,
+                                      EMlsReceptionStatus.RECEIVED_AB,
+                                      _now (),
+                                      "mls-msg-first",
+                                      "inbound-mls-tx-first").isSuccess ());
+
+    // Only the first MLS needs to be considered - a second, different one is not stored
+    assertTrue (aMgr.updateMlsStatus (sID,
+                                      EMlsReceptionStatus.RECEIVED_RE,
+                                      _now (),
+                                      "mls-msg-second",
+                                      "inbound-mls-tx-second").isFailure ());
+
+    final IOutboundTransaction aTx = aMgr.getByID (sID);
+    assertNotNull (aTx);
+    assertEquals (EMlsReceptionStatus.RECEIVED_AB, aTx.getMlsStatus ());
+    assertEquals ("mls-msg-first", aTx.getMlsID ());
+    assertEquals ("inbound-mls-tx-first", aTx.getMlsInboundTransactionID ());
+  }
+
+  @Test
   public void testOutboundUpdateReportingStatus ()
   {
     final IOutboundTransactionManager aMgr = APJdbcMetaManager.getOutboundTransactionMgr ();
@@ -884,6 +912,27 @@ public final class JdbcManagerIntegrationTest
     assertNull (aTx.getNextRetryDT ());
     assertEquals (EVerificationResult.REJECTED, aTx.getVerificationResult ());
     assertEquals (sDetails, aTx.getVerificationDetails ());
+  }
+
+  @Test
+  public void testInboundUpdateMlsCorrelatedOutboundTransactionID ()
+  {
+    final IInboundTransactionManager aMgr = APJdbcMetaManager.getInboundTransactionMgr ();
+    final String sID = _createInboundTx ();
+    assertNotNull (sID);
+
+    // Not correlated yet
+    assertNull (aMgr.getByID (sID).getMlsCorrelatedOutboundTransactionID ());
+
+    final String sOutboundTxID = _uniqueID ();
+    assertTrue (aMgr.updateMlsCorrelatedOutboundTransactionID (sID, sOutboundTxID).isSuccess ());
+    assertEquals (sOutboundTxID, aMgr.getByID (sID).getMlsCorrelatedOutboundTransactionID ());
+
+    // The other MLS fields are not touched
+    assertNull (aMgr.getByID (sID).getMlsOutboundTransactionID ());
+
+    // Unknown transaction
+    assertTrue (aMgr.updateMlsCorrelatedOutboundTransactionID (_uniqueID (), sOutboundTxID).isFailure ());
   }
 
   @Test
@@ -1365,10 +1414,18 @@ public final class JdbcManagerIntegrationTest
                         null);
     aTxMgr.updateStatusCompleted (sTxID, EOutboundStatus.SENT);
 
+    assertNotNull (aTxMgr.getByIDIncludingArchive (sTxID));
+
     assertTrue (aArchivalMgr.archiveOutboundTransaction (sTxID).isSuccess ());
 
     assertNull (aTxMgr.getByID (sTxID));
     assertTrue (aAttemptMgr.getByTransactionID (sTxID).isEmpty ());
+
+    // Still found in the archive
+    final IOutboundTransaction aArchivedTx = aTxMgr.getByIDIncludingArchive (sTxID);
+    assertNotNull (aArchivedTx);
+    assertEquals (sTxID, aArchivedTx.getID ());
+    assertEquals (EOutboundStatus.SENT, aArchivedTx.getStatus ());
   }
 
   @Test
@@ -1402,6 +1459,8 @@ public final class JdbcManagerIntegrationTest
 
     final String sDetails = "[{\"level\":\"error\",\"type\":\"business_rule\",\"code\":\"PEPPOL-EN16931-R001\",\"description\":\"Missing ID\"}]";
     assertTrue (aTxMgr.updateVerificationResult (sTxID, EVerificationResult.REJECTED, sDetails).isSuccess ());
+    final String sOutboundTxID = _uniqueID ();
+    assertTrue (aTxMgr.updateMlsCorrelatedOutboundTransactionID (sTxID, sOutboundTxID).isSuccess ());
     aTxMgr.updateStatusCompleted (sTxID, EInboundStatus.FORWARDED);
 
     // Archival copies rows with "INSERT INTO ..._archive SELECT * FROM ...", so a column order
@@ -1413,6 +1472,7 @@ public final class JdbcManagerIntegrationTest
     assertNotNull (aArchived);
     assertEquals (EVerificationResult.REJECTED, aArchived.getVerificationResult ());
     assertEquals (sDetails, aArchived.getVerificationDetails ());
+    assertEquals (sOutboundTxID, aArchived.getMlsCorrelatedOutboundTransactionID ());
   }
 
   @Test
