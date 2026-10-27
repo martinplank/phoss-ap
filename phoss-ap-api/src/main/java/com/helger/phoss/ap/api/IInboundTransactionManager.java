@@ -216,6 +216,36 @@ public interface IInboundTransactionManager
   long markAllInFlightAsRecovering (@NonNull OffsetDateTime aRecoveryDueDT);
 
   /**
+   * Mark all transactions in {@link EInboundStatus#RECEIVED} as
+   * {@link EInboundStatus#RECEIVE_RECOVERING}, due for resuming at the provided date time. A
+   * transaction that is still being processed leaves that status again with its next regular status
+   * update; one that was left behind by an instance that stopped unexpectedly is resumed when it is
+   * due.
+   *
+   * @param aRecoveryDueDT
+   *        The date time at which the marked transactions become due for resuming. Never
+   *        <code>null</code>.
+   * @return The number of transactions marked. Always &ge; 0.
+   * @since 0.14.0
+   */
+  @Nonnegative
+  long markAllReceivedAsRecovering (@NonNull OffsetDateTime aRecoveryDueDT);
+
+  /**
+   * Atomically claim a transaction returned by {@link #getAllForReceiveRecovery(int)}: change its
+   * status from {@link EInboundStatus#RECEIVE_RECOVERING} back to {@link EInboundStatus#RECEIVED},
+   * if it is still in that status and due. Back in {@link EInboundStatus#RECEIVED}, it is marked
+   * again, if the claiming instance stops as well.
+   *
+   * @param sID
+   *        The transaction ID. Never <code>null</code>.
+   * @return {@link ESuccess#SUCCESS} if this call claimed the transaction.
+   * @since 0.14.0
+   */
+  @NonNull
+  ESuccess claimForReceiveRecovery (@NonNull String sID);
+
+  /**
    * Atomically claim a transaction returned by {@link #getAllForVerificationRetry(int)}: move its
    * next retry to the lease end, if it is still deferred and due. The status stays unchanged.
    * <p>
@@ -414,6 +444,19 @@ public interface IInboundTransactionManager
    */
   @NonNull
   ICommonsList <IInboundTransaction> getAllForRetry (@Nonnegative int nBatchSize);
+
+  /**
+   * Get inbound transactions in {@link EInboundStatus#RECEIVE_RECOVERING} whose processing is due for
+   * resuming. They are not locked - claim each one with {@link #claimForReceiveRecovery(String)}
+   * before processing it.
+   *
+   * @param nBatchSize
+   *        Maximum number of transactions to return. Must be &gt; 0.
+   * @return The list of transactions. Never <code>null</code>.
+   * @since 0.14.0
+   */
+  @NonNull
+  ICommonsList <IInboundTransaction> getAllForReceiveRecovery (@Nonnegative int nBatchSize);
 
   /**
    * Get inbound transactions with a deferred verification that are eligible for re-verification.

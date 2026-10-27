@@ -65,9 +65,8 @@ public final class RetryScheduler
   {
     try
     {
-      final OffsetDateTime aRecoveryDueDT = APBasicMetaManager.getTimestampMgr ()
-                                                              .getCurrentDateTimeUTC ()
-                                                              .plus (APCoreConfig.getRecoveryGracePeriod ());
+      final OffsetDateTime aNow = APBasicMetaManager.getTimestampMgr ().getCurrentDateTimeUTC ();
+      final OffsetDateTime aRecoveryDueDT = aNow.plus (APCoreConfig.getRecoveryGracePeriodInFlight ());
       final long nOutbound = APJdbcMetaManager.getOutboundTransactionMgr ()
                                               .markAllInFlightAsRecovering (aRecoveryDueDT);
       final long nInbound = APJdbcMetaManager.getInboundTransactionMgr ().markAllInFlightAsRecovering (aRecoveryDueDT);
@@ -78,6 +77,15 @@ public final class RetryScheduler
                      nInbound +
                      " inbound in-flight transactions as recovering - they are retried at " +
                      aRecoveryDueDT +
+                     " unless they are finished before");
+
+      final OffsetDateTime aReceivedDueDT = aNow.plus (APCoreConfig.getRecoveryGracePeriodReceived ());
+      final long nReceived = APJdbcMetaManager.getInboundTransactionMgr ().markAllReceivedAsRecovering (aReceivedDueDT);
+      if (nReceived > 0)
+        LOGGER.info ("Marked " +
+                     nReceived +
+                     " received inbound transactions as receive recovering - their processing is resumed at " +
+                     aReceivedDueDT +
                      " unless they are finished before");
     }
     catch (final Exception ex)
@@ -165,6 +173,85 @@ public final class RetryScheduler
     final Duration aCycleDuration = aSW.stopAndGetDuration ();
     for (final var aHandler : APCoreMetaManager.getAllLifecycleHandlers ())
       aHandler.onRetrySchedulerCycle (true, nProcessed, aCycleDuration);
+  }
+
+  // Resumes the processing of a document whose receiving instance stopped before it was forwarded
+  private static void _resumeReceiveRecovering (@Nonnegative final int nBatchSize)
+  {
+    final var aInboundMgr = APJdbcMetaManager.getInboundTransactionMgr ();
+    int nProcessed = 0;
+
+    // Note: deliberately no "onRetrySchedulerCycle" callback - that SPI method only distinguishes
+    // inbound from outbound, and the receive recovery is neither of the two existing cycles
+    try (final ITelemetrySpan aSpan = Telemetry.startSpan (CPhossAPOtel.SPAN_SCHEDULER_CYCLE,
+                                                           ETelemetrySpanKind.INTERNAL)
+                                               .setAttribute (CPhossAPOtel.ATTR_SCHEDULER_NAME, "receive-recovery")
+                                               .setAttribute (CPhossAPOtel.ATTR_IS_OUTBOUND, false))
+    {
+      try
+      {
+        final ICommonsList <IInboundTransaction> aTransactions = aInboundMgr.getAllForReceiveRecovery (nBatchSize);
+
+        if (aTransactions.isNotEmpty ())
+        {
+          LOGGER.info ("Resuming " + aTransactions.size () + " received inbound transactions");
+          final String sLogPrefix = "[ReceiveRecovery] ";
+
+          for (final IInboundTransaction aInboundTx : aTransactions)
+          {
+            if (aInboundMgr.claimForReceiveRecovery (aInboundTx.getID ()).isFailure ())
+            {
+              if (LOGGER.isDebugEnabled ())
+                LOGGER.debug (sLogPrefix +
+                              "Inbound transaction '" +
+                              aInboundTx.getID () +
+                              "' is no longer eligible for receive recovery (finished or claimed by another instance) - skipping");
+              continue;
+            }
+
+            // Re-read, so that the status is "received" again
+            final IInboundTransaction aClaimedTx = aInboundMgr.getByID (aInboundTx.getID ());
+            if (aClaimedTx == null)
+              continue;
+
+            nProcessed++;
+            LOGGER.warn (sLogPrefix +
+                         "Resuming the processing of inbound transaction '" +
+                         aClaimedTx.getID () +
+                         "' with SBDH '" +
+                         aClaimedTx.getSbdhInstanceID () +
+                         "', that was left behind by an instance that stopped unexpectedly");
+            if (InboundOrchestrator.resumeDeferredInboundDocument (sLogPrefix, aClaimedTx).isFailure ())
+            {
+              // A still unavailable verifier is not a forwarding error
+              final IInboundTransaction aUpdatedTx = aInboundMgr.getByID (aClaimedTx.getID ());
+              if (aUpdatedTx != null && aUpdatedTx.getStatus () != EInboundStatus.VERIFICATION_DEFERRED)
+                for (final var aHandler : APCoreMetaManager.getAllNotificationHandlers ())
+                  aHandler.onInboundForwardingError (aClaimedTx.getID (), true);
+            }
+          }
+        }
+        else
+        {
+          if (LOGGER.isDebugEnabled ())
+            LOGGER.debug ("Found no inbound transactions for receive recovery");
+        }
+      }
+      catch (final Exception ex)
+      {
+        LOGGER.error ("Internal error in inbound receive recovery cycle", ex);
+        aSpan.recordException (ex).setStatusError (ex.getMessage ());
+
+        for (final var aHandler : APCoreMetaManager.getAllNotificationHandlers ())
+          aHandler.onUnexpectedException ("RetryScheduler._resumeReceiveRecovering",
+                                          "Internal error in inbound receive recovery cycle",
+                                          ex);
+      }
+      finally
+      {
+        aSpan.setAttribute (CPhossAPOtel.ATTR_SCHEDULER_ITEMS, nProcessed);
+      }
+    }
   }
 
   private static void _retryDeferredVerification (@Nonnegative final int nBatchSize)
@@ -444,6 +531,7 @@ public final class RetryScheduler
         _markInFlightAsRecovering ();
         _retryOutbound (nBatchSize);
         _retryInbound (nBatchSize);
+        _resumeReceiveRecovering (nBatchSize);
         _retryDeferredVerification (nBatchSize);
         _sendMlsAfterApiTimeout (nBatchSize);
       }

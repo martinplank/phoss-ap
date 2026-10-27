@@ -52,8 +52,12 @@ public class StartupCheckRetryScheduler extends AbstractAPStartupCheck
     if (aInterval.toMillis () < 1)
       addError (aErrors, "The retry scheduler interval must be >= 1 ms, but is " + aInterval);
 
-    final Duration aGracePeriod = APCoreConfig.getRecoveryGracePeriod ();
-    if (aGracePeriod.toMillis () < 1)
-      addError (aErrors, "The recovery grace period must be >= 1 ms, but is " + aGracePeriod);
+    final Duration aGracePeriodInFlight = APCoreConfig.getRecoveryGracePeriodInFlight ();
+    if (aGracePeriodInFlight.toMillis () < 1)
+      addError (aErrors, "The in-flight recovery grace period must be >= 1 ms, but is " + aGracePeriodInFlight);
+
+    final Duration aGracePeriodReceived = APCoreConfig.getRecoveryGracePeriodReceived ();
+    if (aGracePeriodReceived.toMillis () < 1)
+      addError (aErrors, "The received recovery grace period must be >= 1 ms, but is " + aGracePeriodReceived);
   }
 }

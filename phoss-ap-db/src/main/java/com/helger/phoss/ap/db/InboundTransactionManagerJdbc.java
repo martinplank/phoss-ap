@@ -368,6 +368,39 @@ public class InboundTransactionManagerJdbc extends AbstractAPJdbcManager impleme
   }
 
   /** {@inheritDoc} */
+  @Nonnegative
+  public long markAllReceivedAsRecovering (@NonNull final OffsetDateTime aRecoveryDueDT)
+  {
+    ValueEnforcer.notNull (aRecoveryDueDT, "RecoveryDueDT");
+
+    // Rows that are being processed right now are marked as well - their next regular status update
+    // overwrites the mark again
+    return newExecutor ().insertOrUpdateOrDelete ("UPDATE " +
+                                                  m_sTableName +
+                                                  " SET status=?, next_retry_dt=?" +
+                                                  " WHERE status=?",
+                                                  new ConstantPreparedStatementDataProvider (EInboundStatus.RECEIVE_RECOVERING.getID (),
+                                                                                             DBValueHelper.toTimestamp (aRecoveryDueDT),
+                                                                                             EInboundStatus.RECEIVED.getID ()));
+  }
+
+  /** {@inheritDoc} */
+  @NonNull
+  public ESuccess claimForReceiveRecovery (@NonNull final String sID)
+  {
+    ValueEnforcer.notNull (sID, "ID");
+
+    final long nRowsAffected = newExecutor ().insertOrUpdateOrDelete ("UPDATE " +
+                                                                      m_sTableName +
+                                                                      " SET status=?" +
+                                                                      " WHERE id=? AND status=? AND next_retry_dt <= NOW()",
+                                                                      new ConstantPreparedStatementDataProvider (EInboundStatus.RECEIVED.getID (),
+                                                                                                                 sID,
+                                                                                                                 EInboundStatus.RECEIVE_RECOVERING.getID ()));
+    return ESuccess.valueOf (nRowsAffected == 1);
+  }
+
+  /** {@inheritDoc} */
   @NonNull
   public ESuccess claimForVerificationRetry (@NonNull final String sID, @NonNull final OffsetDateTime aLeaseEndDT)
   {
@@ -556,12 +589,13 @@ public class InboundTransactionManagerJdbc extends AbstractAPJdbcManager impleme
                                                                       COLS +
                                                                       " FROM " +
                                                                       m_sTableName +
-                                                                      " WHERE status IN (?,?,?,?,?)",
+                                                                      " WHERE status IN (?,?,?,?,?,?)",
                                                                       new ConstantPreparedStatementDataProvider (EInboundStatus.RECEIVED.getID (),
                                                                                                                  EInboundStatus.VERIFICATION_DEFERRED.getID (),
                                                                                                                  EInboundStatus.FORWARDING.getID (),
                                                                                                                  EInboundStatus.FORWARD_FAILED.getID (),
-                                                                                                                 EInboundStatus.RECOVERING.getID ()));
+                                                                                                                 EInboundStatus.RECOVERING.getID (),
+                                                                                                                 EInboundStatus.RECEIVE_RECOVERING.getID ()));
     final ICommonsList <IInboundTransaction> ret = new CommonsArrayList <> ();
     if (aRows != null)
       for (final DBResultRow aRow : aRows)
@@ -583,6 +617,28 @@ public class InboundTransactionManagerJdbc extends AbstractAPJdbcManager impleme
                                                                       nBatchSize,
                                                                       new ConstantPreparedStatementDataProvider (EInboundStatus.FORWARD_FAILED.getID (),
                                                                                                                  EInboundStatus.RECOVERING.getID ()));
+    final ICommonsList <IInboundTransaction> ret = new CommonsArrayList <> ();
+    if (aRows != null)
+      for (final DBResultRow aRow : aRows)
+        ret.add (new InboundTransactionRow (aRow));
+    return ret;
+  }
+
+  /** {@inheritDoc} */
+  @NonNull
+  public ICommonsList <IInboundTransaction> getAllForReceiveRecovery (@Nonnegative final int nBatchSize)
+  {
+    ValueEnforcer.isGT0 (nBatchSize, "BatchSize");
+
+    final ICommonsList <DBResultRow> aRows = newExecutor ().queryAll ("SELECT " +
+                                                                      COLS +
+                                                                      " FROM " +
+                                                                      m_sTableName +
+                                                                      " WHERE status=? AND next_retry_dt <= NOW()" +
+                                                                      " ORDER BY next_retry_dt" +
+                                                                      " LIMIT " +
+                                                                      nBatchSize,
+                                                                      new ConstantPreparedStatementDataProvider (EInboundStatus.RECEIVE_RECOVERING.getID ()));
     final ICommonsList <IInboundTransaction> ret = new CommonsArrayList <> ();
     if (aRows != null)
       for (final DBResultRow aRow : aRows)

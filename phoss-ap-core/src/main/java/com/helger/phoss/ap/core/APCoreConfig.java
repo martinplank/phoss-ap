@@ -542,15 +542,28 @@ public final class APCoreConfig
   }
 
   /**
-   * @return The duration after which a transaction marked as recovering is retried, unless the
-   *         instance processing it finishes it before. Never <code>null</code>.
+   * @return The duration after which an in-flight transaction marked as recovering is retried,
+   *         unless the instance processing it finishes it before. Never <code>null</code>.
    * @since 0.14.0
    */
   @NonNull
-  public static Duration getRecoveryGracePeriod ()
+  public static Duration getRecoveryGracePeriodInFlight ()
   {
-    return _getDuration (APConfigurationProperties.RECOVERY_GRACE_PERIOD,
-                         APConfigurationProperties.RECOVERY_GRACE_PERIOD_DEFAULT);
+    return _getDuration (APConfigurationProperties.RECOVERY_GRACE_PERIOD_IN_FLIGHT,
+                         APConfigurationProperties.RECOVERY_GRACE_PERIOD_IN_FLIGHT_DEFAULT);
+  }
+
+  /**
+   * @return The duration after which the processing of a received inbound transaction marked as
+   *         receive recovering is resumed, unless the instance processing it finishes it before.
+   *         Never <code>null</code>.
+   * @since 0.14.0
+   */
+  @NonNull
+  public static Duration getRecoveryGracePeriodReceived ()
+  {
+    return _getDuration (APConfigurationProperties.RECOVERY_GRACE_PERIOD_RECEIVED,
+                         APConfigurationProperties.RECOVERY_GRACE_PERIOD_RECEIVED_DEFAULT);
   }
 
   /**

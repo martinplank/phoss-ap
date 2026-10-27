@@ -23,6 +23,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import org.jspecify.annotations.NonNull;
@@ -37,20 +38,27 @@ import com.helger.config.fallback.ConfigWithFallback;
 import com.helger.config.fallback.IConfigWithFallback;
 import com.helger.config.source.MultiConfigurationValueProvider;
 import com.helger.config.source.appl.ConfigurationSourceFunction;
+import com.helger.peppol.mls.EPeppolMLSResponseCode;
 import com.helger.peppol.sbdh.EPeppolMLSType;
 import com.helger.peppolid.peppol.doctype.EPredefinedDocumentTypeIdentifier;
 import com.helger.peppolid.peppol.process.EPredefinedProcessIdentifier;
 import com.helger.phoss.ap.api.IInboundTransactionManager;
+import com.helger.phoss.ap.api.IOutboundTransactionManager;
 import com.helger.phoss.ap.api.codelist.EInboundStatus;
+import com.helger.phoss.ap.api.codelist.EMlsReceptionStatus;
+import com.helger.phoss.ap.api.codelist.ESourceType;
+import com.helger.phoss.ap.api.codelist.ETransactionType;
 import com.helger.phoss.ap.api.codelist.EVerificationRejectionForwarding;
 import com.helger.phoss.ap.api.codelist.EVerificationResult;
 import com.helger.phoss.ap.api.config.APConfigProvider;
 import com.helger.phoss.ap.api.config.APConfigurationProperties;
 import com.helger.phoss.ap.api.model.IInboundTransaction;
+import com.helger.phoss.ap.api.model.IOutboundTransaction;
 import com.helger.phoss.ap.api.model.VerificationIssue;
 import com.helger.phoss.ap.api.model.VerificationOutcome;
 import com.helger.phoss.ap.api.model.VerifierResult;
 import com.helger.phoss.ap.basic.APBasicMetaManager;
+import com.helger.phoss.ap.core.mls.MlsHandler;
 import com.helger.phoss.ap.db.APJdbcMetaManager;
 import com.helger.scope.mock.ScopeTestRule;
 
@@ -59,9 +67,9 @@ import com.helger.scope.mock.ScopeTestRule;
  * {@link InboundOrchestratorVerifierTest}, which only exercises the pure verifier evaluation, these
  * tests need the database, because the verdict is written to the inbound transaction.
  * <p>
- * It also covers <code>forwarding.mls.skip-uncorrelated</code>. That cannot go into a separate
- * test class, because the static DataSourceProvider of the database layer can only be initialised
- * once per JVM.
+ * It also covers <code>forwarding.mls.skip-uncorrelated</code> and the repeated correlation of an
+ * inbound MLS. That cannot go into a separate test class, because the static DataSourceProvider of
+ * the database layer can only be initialised once per JVM.
  * </p>
  *
  * @author Philip Helger
@@ -135,6 +143,37 @@ public final class InboundVerificationResultIntegrationTest
     if (sCorrelatedOutboundTxID != null)
       assertTrue (aMgr.updateMlsCorrelatedOutboundTransactionID (sTxID, sCorrelatedOutboundTxID).isSuccess ());
     final IInboundTransaction aTx = aMgr.getByID (sTxID);
+    assertNotNull (aTx);
+    return aTx;
+  }
+
+  @NonNull
+  private static IOutboundTransaction _createOutboundTx ()
+  {
+    final IOutboundTransactionManager aMgr = APJdbcMetaManager.getOutboundTransactionMgr ();
+    final String sTxID = aMgr.create (ETransactionType.BUSINESS_DOCUMENT,
+                                      "iso6523-actorid-upis::9915:sender",
+                                      "iso6523-actorid-upis::9915:receiver",
+                                      "busdox-docid-qns::urn:test:invoice",
+                                      "cenbii-procid-ubl::urn:test:process",
+                                      "test-" + UUID.randomUUID (),
+                                      ESourceType.PAYLOAD_ONLY,
+                                      "/tmp/test-outbound.sbd",
+                                      1024L,
+                                      "abc123hash012345678901234567890123456789012345678901234567890123",
+                                      "DE",
+                                      APBasicMetaManager.getTimestampMgr ().getCurrentDateTimeUTC (),
+                                      null,
+                                      null,
+                                      null,
+                                      null,
+                                      null,
+                                      null,
+                                      null,
+                                      null,
+                                      null);
+    assertNotNull (sTxID);
+    final IOutboundTransaction aTx = aMgr.getByID (sTxID);
     assertNotNull (aTx);
     return aTx;
   }
@@ -398,5 +437,48 @@ public final class InboundVerificationResultIntegrationTest
     // Nothing was attempted
     assertEquals (0, aUpdated.getAttemptCount ());
     assertTrue (APJdbcMetaManager.getInboundForwardingAttemptMgr ().getByTransactionID (aTx.getID ()).isEmpty ());
+  }
+
+  @Test
+  public void testRepeatedMlsCorrelationIsCompleted ()
+  {
+    final IOutboundTransactionManager aOutboundMgr = APJdbcMetaManager.getOutboundTransactionMgr ();
+    final IInboundTransactionManager aInboundMgr = APJdbcMetaManager.getInboundTransactionMgr ();
+    final OffsetDateTime aNow = APBasicMetaManager.getTimestampMgr ().getCurrentDateTimeUTC ();
+    final IOutboundTransaction aOutboundTx = _createOutboundTx ();
+    final IInboundTransaction aMlsTx = _createUncorrelatedMls ();
+
+    // The receiving instance stored the MLS status, but stopped before it linked the inbound MLS
+    assertTrue (aOutboundMgr.updateMlsStatus (aOutboundTx.getID (),
+                                              EMlsReceptionStatus.RECEIVED_AP,
+                                              aNow,
+                                              "mls-1",
+                                              aMlsTx.getID ())
+                            .isSuccess ());
+    assertNull (aInboundMgr.getByID (aMlsTx.getID ()).getMlsCorrelatedOutboundTransactionID ());
+
+    // Resumed: the correlation is completed again
+    assertTrue (MlsHandler.handleIncomingMls (LOG_PREFIX,
+                                              aOutboundTx.getSbdhInstanceID (),
+                                              EPeppolMLSResponseCode.ACCEPTANCE,
+                                              aNow,
+                                              "mls-1",
+                                              aMlsTx.getID ())
+                          .isSuccess ());
+    assertEquals (aOutboundTx.getID (), aInboundMgr.getByID (aMlsTx.getID ()).getMlsCorrelatedOutboundTransactionID ());
+
+    // Another MLS for the same outbound transaction is still ignored
+    final IInboundTransaction aLaterMlsTx = _createUncorrelatedMls ();
+    assertTrue (MlsHandler.handleIncomingMls (LOG_PREFIX,
+                                              aOutboundTx.getSbdhInstanceID (),
+                                              EPeppolMLSResponseCode.REJECTION,
+                                              aNow,
+                                              "mls-2",
+                                              aLaterMlsTx.getID ())
+                          .isSuccess ());
+    assertNull (aInboundMgr.getByID (aLaterMlsTx.getID ()).getMlsCorrelatedOutboundTransactionID ());
+    final IOutboundTransaction aFinalTx = aOutboundMgr.getByID (aOutboundTx.getID ());
+    assertEquals (EMlsReceptionStatus.RECEIVED_AP, aFinalTx.getMlsStatus ());
+    assertEquals (aMlsTx.getID (), aFinalTx.getMlsInboundTransactionID ());
   }
 }

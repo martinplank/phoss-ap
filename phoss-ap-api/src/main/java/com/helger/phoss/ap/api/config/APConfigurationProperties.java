@@ -566,9 +566,13 @@ public final class APConfigurationProperties
   /** Changed from <code>true</code> to <code>false</code> in 0.14.0 */
   public static final boolean STARTUP_RECOVERY_ENABLED_DEFAULT = false;
   /** @since 0.14.0 */
-  public static final String RECOVERY_GRACE_PERIOD = "recovery.grace-period";
+  public static final String RECOVERY_GRACE_PERIOD_IN_FLIGHT = "recovery.grace-period.in-flight";
   /** @since 0.14.0 */
-  public static final Duration RECOVERY_GRACE_PERIOD_DEFAULT = Duration.ofMinutes (30);
+  public static final Duration RECOVERY_GRACE_PERIOD_IN_FLIGHT_DEFAULT = Duration.ofMinutes (30);
+  /** @since 0.14.0 */
+  public static final String RECOVERY_GRACE_PERIOD_RECEIVED = "recovery.grace-period.received";
+  /** @since 0.14.0 */
+  public static final Duration RECOVERY_GRACE_PERIOD_RECEIVED_DEFAULT = Duration.ofMinutes (10);
 
   private APConfigurationProperties ()
   {}

@@ -527,7 +527,9 @@ public final class MlsHandler
    * Correlate an incoming MLS to a previous outbound transaction. Only the first MLS received for an
    * outbound transaction is correlated, as only that one needs to be considered according to the
    * Peppol specifications. Every later MLS is ignored: the outbound transaction is not modified, the
-   * inbound MLS is not linked to it and no lifecycle event is fired.
+   * inbound MLS is not linked to it and no lifecycle event is fired. If the same inbound MLS is
+   * correlated again - when its processing is resumed after the receiving instance stopped
+   * unexpectedly - the correlation is completed again and the lifecycle event is fired again.
    *
    * @param sLogPrefix
    *        Log prefix. Never <code>null</code>.
@@ -581,34 +583,51 @@ public final class MlsHandler
     {
       // Re-read, because another MLS may have won in the meantime
       final IOutboundTransaction aCurrentTx = aOutboundMgr.getByID (aTx.getID ());
-      final EMlsReceptionStatus eCurrentMlsStatus = aCurrentTx == null ? null : aCurrentTx.getMlsStatus ();
-      if (eCurrentMlsStatus == EMlsReceptionStatus.RECEIVED_AP ||
-          eCurrentMlsStatus == EMlsReceptionStatus.RECEIVED_AB ||
-          eCurrentMlsStatus == EMlsReceptionStatus.RECEIVED_RE)
+      if (aCurrentTx != null && sMlsInboundTransactionID.equals (aCurrentTx.getMlsInboundTransactionID ()))
       {
-        LOGGER.warn (sLogPrefix +
-                     "Ignoring the MLS response (" +
-                     eResponseCode.getID () +
-                     ") of inbound transaction '" +
+        // This MLS itself won before - its processing is resumed after the receiving instance
+        // stopped unexpectedly. The correlation is completed again, including the lifecycle event,
+        // because it is unknown whether it was fired before
+        LOGGER.info (sLogPrefix +
+                     "The MLS response of inbound transaction '" +
                      sMlsInboundTransactionID +
-                     "' for outbound transaction '" +
+                     "' was already stored for outbound transaction '" +
                      aTx.getID () +
-                     "', because an MLS was already received for it with status '" +
-                     eCurrentMlsStatus.getID () +
-                     "' from inbound transaction '" +
-                     aCurrentTx.getMlsInboundTransactionID () +
-                     "' - only the first MLS is considered");
-        return ESuccess.SUCCESS;
+                     "' - completing the correlation again");
       }
-      return ESuccess.FAILURE;
+      else
+      {
+        final EMlsReceptionStatus eCurrentMlsStatus = aCurrentTx == null ? null : aCurrentTx.getMlsStatus ();
+        if (eCurrentMlsStatus == EMlsReceptionStatus.RECEIVED_AP ||
+            eCurrentMlsStatus == EMlsReceptionStatus.RECEIVED_AB ||
+            eCurrentMlsStatus == EMlsReceptionStatus.RECEIVED_RE)
+        {
+          LOGGER.warn (sLogPrefix +
+                       "Ignoring the MLS response (" +
+                       eResponseCode.getID () +
+                       ") of inbound transaction '" +
+                       sMlsInboundTransactionID +
+                       "' for outbound transaction '" +
+                       aTx.getID () +
+                       "', because an MLS was already received for it with status '" +
+                       eCurrentMlsStatus.getID () +
+                       "' from inbound transaction '" +
+                       aCurrentTx.getMlsInboundTransactionID () +
+                       "' - only the first MLS is considered");
+          return ESuccess.SUCCESS;
+        }
+        return ESuccess.FAILURE;
+      }
     }
-
-    LOGGER.info (sLogPrefix +
-                 "Updated MLS status for transaction '" +
-                 aTx.getID () +
-                 "' to '" +
-                 eMlsStatus.getID () +
-                 "'");
+    else
+    {
+      LOGGER.info (sLogPrefix +
+                   "Updated MLS status for transaction '" +
+                   aTx.getID () +
+                   "' to '" +
+                   eMlsStatus.getID () +
+                   "'");
+    }
 
     // Remember the correlation on the inbound MLS, so that the forwarding (also a later retry) can
     // tell a correlated MLS apart from an uncorrelated one

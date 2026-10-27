@@ -1321,6 +1321,52 @@ public final class JdbcManagerIntegrationTest
   }
 
   @Test
+  public void testInboundMarkAllReceivedAsRecovering ()
+  {
+    final IInboundTransactionManager aMgr = APJdbcMetaManager.getInboundTransactionMgr ();
+    final String sReceivedID = _createInboundTx ();
+    final String sForwardingID = _createInboundTx ();
+    aMgr.updateStatus (sForwardingID, EInboundStatus.FORWARDING);
+
+    assertTrue (aMgr.markAllReceivedAsRecovering (_now ().plusHours (1)) >= 1);
+    assertEquals (EInboundStatus.RECEIVE_RECOVERING, aMgr.getByID (sReceivedID).getStatus ());
+    assertEquals (EInboundStatus.FORWARDING, aMgr.getByID (sForwardingID).getStatus ());
+    assertTrue (aMgr.getAllInProcessing ().containsAny (x -> x.getID ().equals (sReceivedID)));
+
+    // Not due before the grace period has passed
+    assertFalse (aMgr.getAllForReceiveRecovery (1000).containsAny (x -> x.getID ().equals (sReceivedID)));
+    assertFalse (aMgr.claimForReceiveRecovery (sReceivedID).isSuccess ());
+
+    // Not marked again
+    aMgr.markAllReceivedAsRecovering (_now ().minusMinutes (1));
+    assertFalse (aMgr.claimForReceiveRecovery (sReceivedID).isSuccess ());
+
+    // The instance that is still processing it starts the forwarding
+    aMgr.updateStatus (sReceivedID, EInboundStatus.FORWARDING);
+    assertEquals (EInboundStatus.FORWARDING, aMgr.getByID (sReceivedID).getStatus ());
+    assertFalse (aMgr.claimForReceiveRecovery (sReceivedID).isSuccess ());
+  }
+
+  @Test
+  public void testInboundReceiveRecoveringIsResumedWhenDue ()
+  {
+    final IInboundTransactionManager aMgr = APJdbcMetaManager.getInboundTransactionMgr ();
+    final String sID = _createInboundTx ();
+
+    assertTrue (aMgr.markAllReceivedAsRecovering (_now ().minusMinutes (1)) >= 1);
+    assertEquals (EInboundStatus.RECEIVE_RECOVERING, aMgr.getByID (sID).getStatus ());
+    assertTrue (aMgr.getAllForReceiveRecovery (1000).containsAny (x -> x.getID ().equals (sID)));
+    // The forwarding retry does not pick it up
+    assertFalse (aMgr.getAllForRetry (1000).containsAny (x -> x.getID ().equals (sID)));
+
+    // Claimed back to "received", so it is marked again if the claiming instance stops too
+    assertTrue (aMgr.claimForReceiveRecovery (sID).isSuccess ());
+    assertEquals (EInboundStatus.RECEIVED, aMgr.getByID (sID).getStatus ());
+    assertFalse (aMgr.claimForReceiveRecovery (sID).isSuccess ());
+    assertFalse (aMgr.claimForReceiveRecovery ("does-not-exist").isSuccess ());
+  }
+
+  @Test
   public void testInboundVerificationRetryClaimIsExclusiveAcrossConnections () throws Exception
   {
     final IInboundTransactionManager aMgr = APJdbcMetaManager.getInboundTransactionMgr ();

@@ -43,7 +43,9 @@ public final class StartupRecovery
    * Run the startup recovery process. If startup recovery is disabled via configuration, this
    * method returns immediately. Otherwise it resets all outbound transactions in {@code PENDING},
    * {@code SENDING} or {@code RECOVERING} status and all inbound transactions in {@code FORWARDING}
-   * or {@code RECOVERING} status so they become eligible for an immediate retry.
+   * or {@code RECOVERING} status so they become eligible for an immediate retry. Inbound
+   * transactions in {@code RECEIVED} or {@code RECEIVE_RECOVERING} status are made due for an
+   * immediate receive recovery.
    * <p>
    * This is only safe in a single-instance deployment, because it cannot tell the transactions left
    * behind by the previous run of this instance from those that another instance is processing right
@@ -99,6 +101,17 @@ public final class StartupRecovery
                                           "Recovered from unclean shutdown");
         nInboundRecovered++;
       }
+      else
+        if (eStatus == EInboundStatus.RECEIVED || eStatus == EInboundStatus.RECEIVE_RECOVERING)
+        {
+          // Not forwarded and maybe not verified - resumed immediately by the first retry
+          // scheduler cycle
+          aInboundMgr.updateStatusAndNextRetry (aTx.getID (),
+                                                EInboundStatus.RECEIVE_RECOVERING,
+                                                aTimestampMgr.getCurrentDateTimeUTC (),
+                                                "Recovered from unclean shutdown");
+          nInboundRecovered++;
+        }
     }
 
     LOGGER.info ("Startup recovery complete: " +

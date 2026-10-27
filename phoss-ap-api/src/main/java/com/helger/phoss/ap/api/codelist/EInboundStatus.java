@@ -57,6 +57,15 @@ public enum EInboundStatus implements IHasID <String>
    * @since 0.14.0
    */
   RECOVERING ("recovering"),
+  /**
+   * The transaction was found in {@link #RECEIVED} and may have been left behind by an instance that
+   * stopped unexpectedly &mdash; its processing is resumed (verification, MLS correlation and
+   * forwarding) once the received recovery grace period has passed, unless the instance processing
+   * it finishes it before.
+   *
+   * @since 0.14.0
+   */
+  RECEIVE_RECOVERING ("receive_recovering"),
   /** Max retries exhausted &mdash; no further attempts. */
   PERMANENTLY_FAILED ("permanently_failed"),
   /**
