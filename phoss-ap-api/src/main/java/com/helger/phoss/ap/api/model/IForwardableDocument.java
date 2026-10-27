@@ -156,6 +156,25 @@ public interface IForwardableDocument
   IOutboundTransaction correlatedOutboundTransaction ();
 
   /**
+   * @return The ID of the inbound transaction that an {@link EForwardableKind#OUTBOUND_MLS_COPY}
+   *         answers, i.e. the received business document the MLS was created for, or
+   *         <code>null</code> if this document is not an MLS copy. This is the counterpart of
+   *         {@link #correlatedOutboundTransactionID()} for an inbound MLS.
+   * @since 0.14.0
+   */
+  @Nullable
+  String answeredInboundTransactionID ();
+
+  /**
+   * @return The inbound transaction that an {@link EForwardableKind#OUTBOUND_MLS_COPY} answers, or
+   *         <code>null</code> if there is no {@link #answeredInboundTransactionID()} or if the
+   *         transaction could not be found.
+   * @since 0.14.0
+   */
+  @Nullable
+  IInboundTransaction answeredInboundTransaction ();
+
+  /**
    * @return A supplier of the metadata JSON that a forwarder may write as a sidecar next to the
    *         document, or <code>null</code> if this document has no metadata to offer. It is
    *         deliberately a supplier and not a plain value: rendering the JSON is only worth doing

@@ -64,6 +64,8 @@ public final class ForwardingFilenamePatternTest
                                     null,
                                     null,
                                     null,
+                                    null,
+                                    null,
                                     null);
   }
 

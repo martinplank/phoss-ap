@@ -100,7 +100,21 @@ public final class MlsHandler
       return;
     }
 
-    final ForwardableDocument aDocument = ForwardableDocument.fromOutboundMlsCopy (aMlsTx);
+    // Resolve the received business document the MLS answers, so that the sink can link the copy
+    IInboundTransaction aAnsweredInboundTx = null;
+    final String sAnsweredInboundTxID = aMlsTx.getMlsInboundTransactionID ();
+    if (StringHelper.isNotEmpty (sAnsweredInboundTxID))
+    {
+      aAnsweredInboundTx = APJdbcMetaManager.getInboundTransactionMgr ().getByID (sAnsweredInboundTxID);
+      if (aAnsweredInboundTx == null)
+        LOGGER.warn ("The inbound transaction '" +
+                     sAnsweredInboundTxID +
+                     "' answered by the MLS of outbound transaction '" +
+                     aMlsTx.getID () +
+                     "' could not be found");
+    }
+
+    final ForwardableDocument aDocument = ForwardableDocument.fromOutboundMlsCopy (aMlsTx, aAnsweredInboundTx);
 
     PhotonWorkerPool.getInstance ().run ("forward-mls-copy", () -> {
       try (final ITelemetrySpan aSpan = Telemetry.startSpan (CPhossAPOtel.SPAN_MLS_FORWARD_COPY,

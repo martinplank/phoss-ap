@@ -64,6 +64,10 @@ import com.helger.phoss.ap.api.dto.InboundTransactionResponse;
  *        <code>null</code>.
  * @param correlatedOutboundTransaction
  *        The outbound transaction an inbound MLS was correlated with. May be <code>null</code>.
+ * @param answeredInboundTransactionID
+ *        The ID of the inbound transaction an outbound MLS copy answers. May be <code>null</code>.
+ * @param answeredInboundTransaction
+ *        The inbound transaction an outbound MLS copy answers. May be <code>null</code>.
  * @param metadataJson
  *        A supplier of the metadata JSON sidecar content. May be <code>null</code>.
  * @author Philip Helger
@@ -84,6 +88,8 @@ public record ForwardableDocument (@NonNull @Nonempty String id,
                                    @Nullable String verificationDetails,
                                    @Nullable String correlatedOutboundTransactionID,
                                    @Nullable IOutboundTransaction correlatedOutboundTransaction,
+                                   @Nullable String answeredInboundTransactionID,
+                                   @Nullable IInboundTransaction answeredInboundTransaction,
                                    @Nullable Supplier <String> metadataJson) implements IForwardableDocument
 {
   /**
@@ -122,6 +128,9 @@ public record ForwardableDocument (@NonNull @Nonempty String id,
                                     aTransaction.getVerificationDetails (),
                                     aTransaction.getMlsCorrelatedOutboundTransactionID (),
                                     aCorrelatedOutboundTransaction,
+                                    // A received document never answers another one
+                                    null,
+                                    null,
                                     () -> InboundTransactionResponse.fromDomain (aTransaction)
                                                                     .toJson ()
                                                                     .getAsJsonString (JsonWriterSettings.DEFAULT_SETTINGS_FORMATTED));
@@ -140,10 +149,15 @@ public record ForwardableDocument (@NonNull @Nonempty String id,
    *
    * @param aTransaction
    *        The outbound MLS transaction to adapt. May not be <code>null</code>.
+   * @param aAnsweredInboundTransaction
+   *        The inbound transaction the MLS answers, as resolved from
+   *        {@link IOutboundTransaction#getMlsInboundTransactionID()}. May be <code>null</code>.
    * @return The adapted document. Never <code>null</code>.
+   * @since 0.12.0 - the answered inbound transaction parameter was added in 0.14.0
    */
   @NonNull
-  public static ForwardableDocument fromOutboundMlsCopy (@NonNull final IOutboundTransaction aTransaction)
+  public static ForwardableDocument fromOutboundMlsCopy (@NonNull final IOutboundTransaction aTransaction,
+                                                         @Nullable final IInboundTransaction aAnsweredInboundTransaction)
   {
     return new ForwardableDocument (aTransaction.getID (),
                                     EForwardableKind.OUTBOUND_MLS_COPY,
@@ -162,6 +176,8 @@ public record ForwardableDocument (@NonNull @Nonempty String id,
                                     // A self-generated MLS is never correlated
                                     null,
                                     null,
+                                    aTransaction.getMlsInboundTransactionID (),
+                                    aAnsweredInboundTransaction,
                                     // No sidecar: OutboundTransactionResponse has no JSON
                                     // rendering, and the MLS ApplicationResponse already carries
                                     // the reference to the document it responds to

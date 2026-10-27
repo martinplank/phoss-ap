@@ -100,6 +100,8 @@ public final class DocumentForwarderAdapterTest
     assertEquals (aExpected.verificationDetails (), aActual.verificationDetails ());
     assertEquals (aExpected.correlatedOutboundTransactionID (), aActual.correlatedOutboundTransactionID ());
     assertSame (aExpected.correlatedOutboundTransaction (), aActual.correlatedOutboundTransaction ());
+    assertEquals (aExpected.answeredInboundTransactionID (), aActual.answeredInboundTransactionID ());
+    assertSame (aExpected.answeredInboundTransaction (), aActual.answeredInboundTransaction ());
     assertNotNull (aActual.metadataJson ());
     assertEquals (aExpected.metadataJson ().get (), aActual.metadataJson ().get ());
   }
@@ -153,6 +155,9 @@ public final class DocumentForwarderAdapterTest
     assertNull (aDoc.verificationResult ());
     assertNull (aDoc.correlatedOutboundTransactionID ());
     assertNull (aDoc.correlatedOutboundTransaction ());
+    // A received document never answers another one
+    assertNull (aDoc.answeredInboundTransactionID ());
+    assertNull (aDoc.answeredInboundTransaction ());
   }
 
   @Test

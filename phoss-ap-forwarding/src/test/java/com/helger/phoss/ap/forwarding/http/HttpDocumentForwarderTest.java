@@ -121,7 +121,7 @@ public final class HttpDocumentForwarderTest
     final HttpPost aPost = new HttpPost (ENDPOINT_URL);
 
     aForwarder.applyIdentificationHeaders (aPost,
-                                           ForwardableDocument.fromOutboundMlsCopy (new MockOutboundMlsTransaction ()));
+                                           ForwardableDocument.fromOutboundMlsCopy (new MockOutboundMlsTransaction (), null));
     assertEquals (MockOutboundMlsTransaction.SBDH_INSTANCE_ID,
                   aPost.getFirstHeader (HEADER_SBDH_INSTANCE_ID).getValue ());
     assertEquals (MockOutboundMlsTransaction.ID, aPost.getFirstHeader (HEADER_TRANSACTION_ID).getValue ());
@@ -224,7 +224,7 @@ public final class HttpDocumentForwarderTest
     final HttpPost aPost = new HttpPost (ENDPOINT_URL);
 
     aForwarder.applyVerificationHeaders (aPost,
-                                         ForwardableDocument.fromOutboundMlsCopy (new MockOutboundMlsTransaction ()));
+                                         ForwardableDocument.fromOutboundMlsCopy (new MockOutboundMlsTransaction (), null));
     assertFalse (aPost.containsHeader (HEADER_RESULT));
     assertFalse (aPost.containsHeader (HEADER_DETAILS));
     assertFalse (aPost.containsHeader (HEADER_TRUNCATED));
