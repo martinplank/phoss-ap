@@ -49,6 +49,14 @@ public enum EInboundStatus implements IHasID <String>
   FORWARDED ("forwarded"),
   /** Last forwarding attempt failed &mdash; scheduled for retry. */
   FORWARD_FAILED ("forward_failed"),
+  /**
+   * The transaction was found in {@link #FORWARDING} and may have been left behind by an instance
+   * that stopped unexpectedly &mdash; it is forwarded again once the recovery grace period has
+   * passed, unless the instance processing it finishes it before.
+   *
+   * @since 0.14.0
+   */
+  RECOVERING ("recovering"),
   /** Max retries exhausted &mdash; no further attempts. */
   PERMANENTLY_FAILED ("permanently_failed"),
   /**

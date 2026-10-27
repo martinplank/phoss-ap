@@ -186,8 +186,8 @@ public interface IOutboundTransactionManager
 
   /**
    * Atomically claim a transaction returned by {@link #getAllForRetry(int)}: change its status from
-   * {@link EOutboundStatus#FAILED} to {@link EOutboundStatus#SENDING}, if it is still failed and due
-   * for a retry.
+   * {@link EOutboundStatus#FAILED} or {@link EOutboundStatus#RECOVERING} to
+   * {@link EOutboundStatus#SENDING}, if it is still in that status and due for a retry.
    *
    * @param sID
    *        The transaction ID. Never <code>null</code>.
@@ -196,6 +196,21 @@ public interface IOutboundTransactionManager
    */
   @NonNull
   ESuccess claimForRetry (@NonNull String sID);
+
+  /**
+   * Mark all transactions in {@link EOutboundStatus#PENDING} or {@link EOutboundStatus#SENDING} as
+   * {@link EOutboundStatus#RECOVERING}, due for a retry at the provided date time. A transaction
+   * that is still being processed leaves that status again with its next regular status update; one
+   * that was left behind by an instance that stopped unexpectedly is retried when it is due.
+   *
+   * @param aRecoveryDueDT
+   *        The date time at which the marked transactions become due for a retry. Never
+   *        <code>null</code>.
+   * @return The number of transactions marked. Always &ge; 0.
+   * @since 0.14.0
+   */
+  @Nonnegative
+  long markAllInFlightAsRecovering (@NonNull OffsetDateTime aRecoveryDueDT);
 
   /**
    * Update the status after a failed attempt with retry information.
@@ -280,8 +295,8 @@ public interface IOutboundTransactionManager
   ICommonsList <IOutboundTransaction> getAllInTransmission ();
 
   /**
-   * Get failed outbound transactions eligible for retry. They are not locked - claim each one with
-   * {@link #claimForRetry(String)} before processing it.
+   * Get failed and recovering outbound transactions eligible for retry. They are not locked - claim
+   * each one with {@link #claimForRetry(String)} before processing it.
    *
    * @param nBatchSize
    *        Maximum number of transactions to return.

@@ -628,6 +628,52 @@ public final class JdbcManagerIntegrationTest
   }
 
   @Test
+  public void testOutboundMarkAllInFlightAsRecovering ()
+  {
+    final IOutboundTransactionManager aMgr = APJdbcMetaManager.getOutboundTransactionMgr ();
+    final String sPendingID = _createOutboundTx ();
+    final String sSendingID = _createOutboundTx ();
+    aMgr.updateStatus (sSendingID, EOutboundStatus.SENDING);
+    final String sFailedID = _createOutboundTx ();
+    aMgr.updateStatusAndRetry (sFailedID, EOutboundStatus.FAILED, 1, _now ().plusHours (1), "test error");
+
+    assertTrue (aMgr.markAllInFlightAsRecovering (_now ().plusHours (1)) >= 2);
+    assertEquals (EOutboundStatus.RECOVERING, aMgr.getByID (sPendingID).getStatus ());
+    assertEquals (EOutboundStatus.RECOVERING, aMgr.getByID (sSendingID).getStatus ());
+    assertEquals (EOutboundStatus.FAILED, aMgr.getByID (sFailedID).getStatus ());
+    assertTrue (aMgr.getAllInTransmission ().containsAny (x -> x.getID ().equals (sSendingID)));
+
+    // Not due before the grace period has passed
+    assertFalse (aMgr.getAllForRetry (1000).containsAny (x -> x.getID ().equals (sSendingID)));
+    assertFalse (aMgr.claimForRetry (sSendingID).isSuccess ());
+
+    // A recovering transaction is not marked again, so its grace period is not extended or shortened
+    aMgr.markAllInFlightAsRecovering (_now ().minusMinutes (1));
+    assertFalse (aMgr.claimForRetry (sSendingID).isSuccess ());
+
+    // The instance that is still processing it finishes it
+    aMgr.updateStatusCompleted (sPendingID, EOutboundStatus.SENT);
+    assertEquals (EOutboundStatus.SENT, aMgr.getByID (sPendingID).getStatus ());
+  }
+
+  @Test
+  public void testOutboundRecoveringIsRetriedWhenDue ()
+  {
+    final IOutboundTransactionManager aMgr = APJdbcMetaManager.getOutboundTransactionMgr ();
+    final String sID = _createOutboundTx ();
+    aMgr.updateStatus (sID, EOutboundStatus.SENDING);
+
+    // The grace period has already passed
+    assertTrue (aMgr.markAllInFlightAsRecovering (_now ().minusMinutes (1)) >= 1);
+    assertEquals (EOutboundStatus.RECOVERING, aMgr.getByID (sID).getStatus ());
+    assertTrue (aMgr.getAllForRetry (1000).containsAny (x -> x.getID ().equals (sID)));
+
+    assertTrue (aMgr.claimForRetry (sID).isSuccess ());
+    assertEquals (EOutboundStatus.SENDING, aMgr.getByID (sID).getStatus ());
+    assertFalse (aMgr.claimForRetry (sID).isSuccess ());
+  }
+
+  @Test
   public void testOutboundGetAllForArchival ()
   {
     final IOutboundTransactionManager aMgr = APJdbcMetaManager.getOutboundTransactionMgr ();
@@ -1229,6 +1275,49 @@ public final class JdbcManagerIntegrationTest
     assertFalse (aMgr.claimForRetry (sID).isSuccess ());
 
     assertFalse (aMgr.claimForRetry ("does-not-exist").isSuccess ());
+  }
+
+  @Test
+  public void testInboundMarkAllInFlightAsRecovering ()
+  {
+    final IInboundTransactionManager aMgr = APJdbcMetaManager.getInboundTransactionMgr ();
+    final String sReceivedID = _createInboundTx ();
+    final String sForwardingID = _createInboundTx ();
+    aMgr.updateStatus (sForwardingID, EInboundStatus.FORWARDING);
+    final String sFailedID = _createInboundTx ();
+    aMgr.updateStatusAndRetry (sFailedID, EInboundStatus.FORWARD_FAILED, 1, _now ().plusHours (1), "test error");
+
+    assertTrue (aMgr.markAllInFlightAsRecovering (_now ().plusHours (1)) >= 1);
+    assertEquals (EInboundStatus.RECEIVED, aMgr.getByID (sReceivedID).getStatus ());
+    assertEquals (EInboundStatus.RECOVERING, aMgr.getByID (sForwardingID).getStatus ());
+    assertEquals (EInboundStatus.FORWARD_FAILED, aMgr.getByID (sFailedID).getStatus ());
+    assertTrue (aMgr.getAllInProcessing ().containsAny (x -> x.getID ().equals (sForwardingID)));
+
+    assertFalse (aMgr.getAllForRetry (1000).containsAny (x -> x.getID ().equals (sForwardingID)));
+    assertFalse (aMgr.claimForRetry (sForwardingID).isSuccess ());
+
+    aMgr.markAllInFlightAsRecovering (_now ().minusMinutes (1));
+    assertFalse (aMgr.claimForRetry (sForwardingID).isSuccess ());
+
+    // The instance that is still forwarding it finishes it
+    aMgr.updateStatusCompleted (sForwardingID, EInboundStatus.FORWARDED);
+    assertEquals (EInboundStatus.FORWARDED, aMgr.getByID (sForwardingID).getStatus ());
+  }
+
+  @Test
+  public void testInboundRecoveringIsRetriedWhenDue ()
+  {
+    final IInboundTransactionManager aMgr = APJdbcMetaManager.getInboundTransactionMgr ();
+    final String sID = _createInboundTx ();
+    aMgr.updateStatus (sID, EInboundStatus.FORWARDING);
+
+    assertTrue (aMgr.markAllInFlightAsRecovering (_now ().minusMinutes (1)) >= 1);
+    assertEquals (EInboundStatus.RECOVERING, aMgr.getByID (sID).getStatus ());
+    assertTrue (aMgr.getAllForRetry (1000).containsAny (x -> x.getID ().equals (sID)));
+
+    assertTrue (aMgr.claimForRetry (sID).isSuccess ());
+    assertEquals (EInboundStatus.FORWARDING, aMgr.getByID (sID).getStatus ());
+    assertFalse (aMgr.claimForRetry (sID).isSuccess ());
   }
 
   @Test

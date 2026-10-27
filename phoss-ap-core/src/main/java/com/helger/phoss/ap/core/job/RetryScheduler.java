@@ -60,6 +60,37 @@ public final class RetryScheduler
   private RetryScheduler ()
   {}
 
+  // Runs before the retries, so that the rows of a stopped instance get due after the grace period
+  private static void _markInFlightAsRecovering ()
+  {
+    try
+    {
+      final OffsetDateTime aRecoveryDueDT = APBasicMetaManager.getTimestampMgr ()
+                                                              .getCurrentDateTimeUTC ()
+                                                              .plus (APCoreConfig.getRecoveryGracePeriod ());
+      final long nOutbound = APJdbcMetaManager.getOutboundTransactionMgr ()
+                                              .markAllInFlightAsRecovering (aRecoveryDueDT);
+      final long nInbound = APJdbcMetaManager.getInboundTransactionMgr ().markAllInFlightAsRecovering (aRecoveryDueDT);
+      if (nOutbound > 0 || nInbound > 0)
+        LOGGER.info ("Marked " +
+                     nOutbound +
+                     " outbound and " +
+                     nInbound +
+                     " inbound in-flight transactions as recovering - they are retried at " +
+                     aRecoveryDueDT +
+                     " unless they are finished before");
+    }
+    catch (final Exception ex)
+    {
+      LOGGER.error ("Internal error marking in-flight transactions as recovering", ex);
+
+      for (final var aHandler : APCoreMetaManager.getAllNotificationHandlers ())
+        aHandler.onUnexpectedException ("RetryScheduler._markInFlightAsRecovering",
+                                        "Internal error marking in-flight transactions as recovering",
+                                        ex);
+    }
+  }
+
   private static void _retryOutbound (@Nonnegative final int nBatchSize)
   {
     final var aOutboundMgr = APJdbcMetaManager.getOutboundTransactionMgr ();
@@ -410,6 +441,7 @@ public final class RetryScheduler
       @Override
       public void run ()
       {
+        _markInFlightAsRecovering ();
         _retryOutbound (nBatchSize);
         _retryInbound (nBatchSize);
         _retryDeferredVerification (nBatchSize);

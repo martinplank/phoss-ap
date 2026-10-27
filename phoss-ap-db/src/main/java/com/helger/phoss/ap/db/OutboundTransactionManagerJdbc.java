@@ -306,11 +306,30 @@ public class OutboundTransactionManagerJdbc extends AbstractAPJdbcManager implem
     final long nRowsAffected = newExecutor ().insertOrUpdateOrDelete ("UPDATE " +
                                                                       m_sTableName +
                                                                       " SET status=?" +
-                                                                      " WHERE id=? AND status=? AND next_retry_dt <= NOW()",
+                                                                      " WHERE id=? AND status IN (?,?) AND next_retry_dt <= NOW()",
                                                                       new ConstantPreparedStatementDataProvider (EOutboundStatus.SENDING.getID (),
                                                                                                                  sID,
-                                                                                                                 EOutboundStatus.FAILED.getID ()));
+                                                                                                                 EOutboundStatus.FAILED.getID (),
+                                                                                                                 EOutboundStatus.RECOVERING.getID ()));
     return ESuccess.valueOf (nRowsAffected == 1);
+  }
+
+  /** {@inheritDoc} */
+  @Nonnegative
+  public long markAllInFlightAsRecovering (@NonNull final OffsetDateTime aRecoveryDueDT)
+  {
+    ValueEnforcer.notNull (aRecoveryDueDT, "RecoveryDueDT");
+
+    // Rows that are being processed right now are marked as well - their next regular status update
+    // overwrites the mark again
+    return newExecutor ().insertOrUpdateOrDelete ("UPDATE " +
+                                                  m_sTableName +
+                                                  " SET status=?, next_retry_dt=?" +
+                                                  " WHERE status IN (?,?)",
+                                                  new ConstantPreparedStatementDataProvider (EOutboundStatus.RECOVERING.getID (),
+                                                                                             DBValueHelper.toTimestamp (aRecoveryDueDT),
+                                                                                             EOutboundStatus.PENDING.getID (),
+                                                                                             EOutboundStatus.SENDING.getID ()));
   }
 
   /** {@inheritDoc} */
@@ -390,10 +409,11 @@ public class OutboundTransactionManagerJdbc extends AbstractAPJdbcManager implem
                                                                       COLS +
                                                                       " FROM " +
                                                                       m_sTableName +
-                                                                      " WHERE status IN (?,?,?)",
+                                                                      " WHERE status IN (?,?,?,?)",
                                                                       new ConstantPreparedStatementDataProvider (EOutboundStatus.PENDING.getID (),
                                                                                                                  EOutboundStatus.SENDING.getID (),
-                                                                                                                 EOutboundStatus.FAILED.getID ()));
+                                                                                                                 EOutboundStatus.FAILED.getID (),
+                                                                                                                 EOutboundStatus.RECOVERING.getID ()));
     final ICommonsList <IOutboundTransaction> ret = new CommonsArrayList <> ();
     if (aRows != null)
       for (final DBResultRow aRow : aRows)
@@ -412,11 +432,12 @@ public class OutboundTransactionManagerJdbc extends AbstractAPJdbcManager implem
                                                                       COLS +
                                                                       " FROM " +
                                                                       m_sTableName +
-                                                                      " WHERE status=? AND next_retry_dt <= NOW()" +
+                                                                      " WHERE status IN (?,?) AND next_retry_dt <= NOW()" +
                                                                       " ORDER BY next_retry_dt" +
                                                                       " LIMIT " +
                                                                       nBatchSize,
-                                                                      new ConstantPreparedStatementDataProvider (EOutboundStatus.FAILED.getID ()));
+                                                                      new ConstantPreparedStatementDataProvider (EOutboundStatus.FAILED.getID (),
+                                                                                                                 EOutboundStatus.RECOVERING.getID ()));
     final ICommonsList <IOutboundTransaction> ret = new CommonsArrayList <> ();
     if (aRows != null)
       for (final DBResultRow aRow : aRows)

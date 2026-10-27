@@ -563,7 +563,12 @@ public final class APConfigurationProperties
   @Deprecated (forRemoval = true, since = "0.9.0")
   public static final long SHUTDOWN_TIMEOUT_MS_DEFAULT = 30_000L;
   public static final String STARTUP_RECOVERY_ENABLED = "startup.recovery.enabled";
-  public static final boolean STARTUP_RECOVERY_ENABLED_DEFAULT = true;
+  /** Changed from <code>true</code> to <code>false</code> in 0.14.0 */
+  public static final boolean STARTUP_RECOVERY_ENABLED_DEFAULT = false;
+  /** @since 0.14.0 */
+  public static final String RECOVERY_GRACE_PERIOD = "recovery.grace-period";
+  /** @since 0.14.0 */
+  public static final Duration RECOVERY_GRACE_PERIOD_DEFAULT = Duration.ofMinutes (30);
 
   private APConfigurationProperties ()
   {}

@@ -542,6 +542,18 @@ public final class APCoreConfig
   }
 
   /**
+   * @return The duration after which a transaction marked as recovering is retried, unless the
+   *         instance processing it finishes it before. Never <code>null</code>.
+   * @since 0.14.0
+   */
+  @NonNull
+  public static Duration getRecoveryGracePeriod ()
+  {
+    return _getDuration (APConfigurationProperties.RECOVERY_GRACE_PERIOD,
+                         APConfigurationProperties.RECOVERY_GRACE_PERIOD_DEFAULT);
+  }
+
+  /**
    * @return {@code true} if the retry background scheduler is enabled. It also runs the
    *         re-verification of deferred documents and the MLS watchdog.
    * @since 0.14.0
@@ -1105,7 +1117,9 @@ public final class APCoreConfig
   }
 
   /**
-   * @return {@code true} if startup recovery of in-flight transactions is enabled.
+   * @return {@code true} if startup recovery of in-flight transactions is enabled. It resets all
+   *         in-flight transactions immediately, so it must only be enabled in a single-instance
+   *         deployment.
    */
   public static boolean isStartupRecoveryEnabled ()
   {
