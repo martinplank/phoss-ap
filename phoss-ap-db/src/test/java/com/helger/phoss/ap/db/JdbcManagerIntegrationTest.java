@@ -34,9 +34,9 @@ import org.junit.ClassRule;
 import org.junit.Test;
 
 import com.helger.base.state.EChange;
+import com.helger.base.state.EContinue;
 import com.helger.base.timing.StopWatch;
 import com.helger.base.wrapper.Wrapper;
-import com.helger.base.state.EContinue;
 import com.helger.collection.commons.ICommonsList;
 import com.helger.db.api.helper.DBSystemHelper;
 import com.helger.db.jdbc.callback.ConstantPreparedStatementDataProvider;
@@ -114,7 +114,7 @@ public final class JdbcManagerIntegrationTest
     final String sTableNamePrefix = DBSystemHelper.getTableNamePrefix (aJdbcConfig.getJdbcDatabaseSystemType (),
                                                                        aJdbcConfig.getJdbcSchema ());
     final DBExecutor aExecutor = APDBExecutor.createNew ().get ();
-    final Wrapper <T> ret = new Wrapper <> ();
+    final Wrapper <T> aRet = new Wrapper <> ();
     assertTrue (aExecutor.performInTransaction ( () -> {
       final ICommonsList <DBResultRow> aRows = aExecutor.queryAll ("SELECT id FROM " +
                                                                    sTableNamePrefix +
@@ -124,11 +124,11 @@ public final class JdbcManagerIntegrationTest
       assertEquals (1, aRows.size ());
 
       final StopWatch aSW = StopWatch.createdStarted ();
-      ret.set (_onOtherConnection (aCallable));
+      aRet.set (_onOtherConnection (aCallable));
       // A lock timeout fails as well - only the duration tells skipping from waiting
       assertTrue ("Waited " + aSW.stopAndGetDuration () + " for the row lock", aSW.getMillis () < 1_000);
     }).isSuccess ());
-    return ret.get ();
+    return aRet.get ();
   }
 
   // --- OutboundTransactionManager ---
@@ -577,7 +577,7 @@ public final class JdbcManagerIntegrationTest
     final ICommonsList <IOutboundTransaction> aBatchA = aMgr.getAllForRetry (1000);
     assertTrue (aBatchA.containsAny (x -> x.getID ().equals (sID)));
 
-    // "SKIP LOCKED" does not keep the second instance away - its lock ended with the SELECT
+    // The SELECT does not lock, so the second instance gets the same candidate
     final ICommonsList <IOutboundTransaction> aBatchB = _onOtherConnection ( () -> aMgr.getAllForRetry (1000));
     assertTrue (aBatchB.containsAny (x -> x.getID ().equals (sID)));
 

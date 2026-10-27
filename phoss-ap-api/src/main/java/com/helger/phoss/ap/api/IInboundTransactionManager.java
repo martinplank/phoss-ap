@@ -195,7 +195,7 @@ public interface IInboundTransactionManager
    * @param sID
    *        The transaction ID. Never <code>null</code>.
    * @return {@link ESuccess#SUCCESS} if this call claimed the transaction.
-   * @since 0.13.2
+   * @since 0.14.0
    */
   @NonNull
   ESuccess claimForRetry (@NonNull String sID);
@@ -215,7 +215,7 @@ public interface IInboundTransactionManager
    * @param aLeaseEndDT
    *        Until when no other caller may claim the transaction. Never <code>null</code>.
    * @return {@link ESuccess#SUCCESS} if this call claimed the transaction.
-   * @since 0.13.2
+   * @since 0.14.0
    */
   @NonNull
   ESuccess claimForVerificationRetry (@NonNull String sID, @NonNull OffsetDateTime aLeaseEndDT);

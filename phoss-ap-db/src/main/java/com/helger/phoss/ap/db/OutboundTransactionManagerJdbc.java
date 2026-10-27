@@ -394,8 +394,7 @@ public class OutboundTransactionManagerJdbc extends AbstractAPJdbcManager implem
                                                                       " WHERE status=? AND next_retry_dt <= NOW()" +
                                                                       " ORDER BY next_retry_dt" +
                                                                       " LIMIT " +
-                                                                      nBatchSize +
-                                                                      " FOR UPDATE SKIP LOCKED",
+                                                                      nBatchSize,
                                                                       new ConstantPreparedStatementDataProvider (EOutboundStatus.FAILED.getID ()));
     final ICommonsList <IOutboundTransaction> ret = new CommonsArrayList <> ();
     if (aRows != null)
@@ -416,8 +415,7 @@ public class OutboundTransactionManagerJdbc extends AbstractAPJdbcManager implem
                                                                       " WHERE status IN (?,?,?) AND reporting_status IN (?,?)" +
                                                                       " ORDER BY completed_dt" +
                                                                       " LIMIT " +
-                                                                      nBatchSize +
-                                                                      " FOR UPDATE SKIP LOCKED",
+                                                                      nBatchSize,
                                                                       new ConstantPreparedStatementDataProvider (EOutboundStatus.REJECTED.getID (),
                                                                                                                  EOutboundStatus.SENT.getID (),
                                                                                                                  EOutboundStatus.PERMANENTLY_FAILED.getID (),

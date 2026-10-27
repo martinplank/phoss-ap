@@ -518,8 +518,7 @@ public class InboundTransactionManagerJdbc extends AbstractAPJdbcManager impleme
                                                                       " WHERE status=? AND next_retry_dt <= NOW()" +
                                                                       " ORDER BY next_retry_dt" +
                                                                       " LIMIT " +
-                                                                      nBatchSize +
-                                                                      " FOR UPDATE SKIP LOCKED",
+                                                                      nBatchSize,
                                                                       new ConstantPreparedStatementDataProvider (EInboundStatus.FORWARD_FAILED.getID ()));
     final ICommonsList <IInboundTransaction> ret = new CommonsArrayList <> ();
     if (aRows != null)
@@ -539,8 +538,7 @@ public class InboundTransactionManagerJdbc extends AbstractAPJdbcManager impleme
                                                                       " WHERE status=? AND next_retry_dt <= NOW()" +
                                                                       " ORDER BY next_retry_dt" +
                                                                       " LIMIT " +
-                                                                      nBatchSize +
-                                                                      " FOR UPDATE SKIP LOCKED",
+                                                                      nBatchSize,
                                                                       new ConstantPreparedStatementDataProvider (EInboundStatus.VERIFICATION_DEFERRED.getID ()));
     final ICommonsList <IInboundTransaction> ret = new CommonsArrayList <> ();
     if (aRows != null)
@@ -633,8 +631,7 @@ public class InboundTransactionManagerJdbc extends AbstractAPJdbcManager impleme
                                                                       sMlsPendingCondition +
                                                                       " ORDER BY completed_dt" +
                                                                       " LIMIT " +
-                                                                      nBatchSize +
-                                                                      " FOR UPDATE SKIP LOCKED",
+                                                                      nBatchSize,
                                                                       aParams);
     final ICommonsList <IInboundTransaction> ret = new CommonsArrayList <> ();
     if (aRows != null)

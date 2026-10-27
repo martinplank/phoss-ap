@@ -192,7 +192,7 @@ public interface IOutboundTransactionManager
    * @param sID
    *        The transaction ID. Never <code>null</code>.
    * @return {@link ESuccess#SUCCESS} if this call claimed the transaction.
-   * @since 0.13.2
+   * @since 0.14.0
    */
   @NonNull
   ESuccess claimForRetry (@NonNull String sID);
