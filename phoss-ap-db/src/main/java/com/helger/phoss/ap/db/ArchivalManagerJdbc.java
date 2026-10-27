@@ -62,17 +62,21 @@ public class ArchivalManagerJdbc extends AbstractAPJdbcManager implements IArchi
     m_sTableNamePrefix = sTableNamePrefix;
   }
 
-  // The lock of the candidate SELECT already ended with its commit, so the row is locked again here
+  // The candidate SELECT holds no lock, so the row is locked here - and only if it is still
+  // eligible for archival, because it may have changed since it was selected
   private boolean _lockLiveRow (@NonNull final DBExecutor aExecutor,
                                 @NonNull final String sTable,
-                                @NonNull final String sID)
+                                @NonNull final String sID,
+                                @NonNull final String sArchivalCondition,
+                                @NonNull final ConstantPreparedStatementDataProvider aParams)
   {
     final ICommonsList <DBResultRow> aRows = aExecutor.queryAll ("SELECT id FROM " +
                                                                  m_sTableNamePrefix +
                                                                  sTable +
-                                                                 " WHERE id=?" +
+                                                                 " WHERE id=? AND " +
+                                                                 sArchivalCondition +
                                                                  " FOR UPDATE SKIP LOCKED",
-                                                                 new ConstantPreparedStatementDataProvider (sID));
+                                                                 aParams);
     return aRows != null && aRows.isNotEmpty ();
   }
 
@@ -82,15 +86,18 @@ public class ArchivalManagerJdbc extends AbstractAPJdbcManager implements IArchi
   {
     ValueEnforcer.notEmpty (sID, "ID");
 
+    final ConstantPreparedStatementDataProvider aParams = new ConstantPreparedStatementDataProvider (sID);
+    final String sArchivalCondition = OutboundTransactionManagerJdbc.getArchivalCondition (aParams);
+
     final DBExecutor aExecutor = newExecutor ();
     final MutableBoolean aArchived = new MutableBoolean (false);
     final ESuccess eSuccess = aExecutor.performInTransaction (() -> {
-      if (!_lockLiveRow (aExecutor, "outbound_transaction", sID))
+      if (!_lockLiveRow (aExecutor, "outbound_transaction", sID, sArchivalCondition, aParams))
       {
         if (LOGGER.isDebugEnabled ())
           LOGGER.debug ("Outbound transaction '" +
                         sID +
-                        "' is already archived or locked by a concurrent transaction - skipping");
+                        "' is already archived, no longer eligible for archival or locked by a concurrent transaction - skipping");
         return;
       }
 
@@ -129,19 +136,22 @@ public class ArchivalManagerJdbc extends AbstractAPJdbcManager implements IArchi
 
   /** {@inheritDoc} */
   @NonNull
-  public ESuccess archiveInboundTransaction (final String sID)
+  public ESuccess archiveInboundTransaction (final String sID, final boolean bExcludeMlsPending)
   {
     ValueEnforcer.notEmpty (sID, "ID");
+
+    final ConstantPreparedStatementDataProvider aParams = new ConstantPreparedStatementDataProvider (sID);
+    final String sArchivalCondition = InboundTransactionManagerJdbc.getArchivalCondition (bExcludeMlsPending, aParams);
 
     final DBExecutor aExecutor = newExecutor ();
     final MutableBoolean aArchived = new MutableBoolean (false);
     final ESuccess eSuccess = aExecutor.performInTransaction (() -> {
-      if (!_lockLiveRow (aExecutor, "inbound_transaction", sID))
+      if (!_lockLiveRow (aExecutor, "inbound_transaction", sID, sArchivalCondition, aParams))
       {
         if (LOGGER.isDebugEnabled ())
           LOGGER.debug ("Inbound transaction '" +
                         sID +
-                        "' is already archived or locked by a concurrent transaction - skipping");
+                        "' is already archived, no longer eligible for archival or locked by a concurrent transaction - skipping");
         return;
       }
 

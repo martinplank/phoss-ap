@@ -122,7 +122,7 @@ public final class ArchivalScheduler
           LOGGER.info ("Archiving " + aTransactions.size () + " inbound transactions");
           for (final IInboundTransaction aTx : aTransactions)
           {
-            if (aArchivalMgr.archiveInboundTransaction (aTx.getID ()).isSuccess ())
+            if (aArchivalMgr.archiveInboundTransaction (aTx.getID (), bExcludeMlsPending).isSuccess ())
               nArchived++;
           }
         }

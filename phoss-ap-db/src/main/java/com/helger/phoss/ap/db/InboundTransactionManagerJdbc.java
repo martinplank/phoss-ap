@@ -82,6 +82,49 @@ public class InboundTransactionManagerJdbc extends AbstractAPJdbcManager impleme
     m_sTableName = sTableNamePrefix + "inbound_transaction";
   }
 
+  /**
+   * Get the SQL condition that an inbound transaction must fulfil to be archived. It is shared by
+   * {@link #getAllForArchival(int, boolean)} and the archival itself, so that the archival
+   * re-checks exactly the criteria of the candidate selection.
+   *
+   * @param bExcludeMlsPending
+   *        <code>true</code> to exclude the transactions that still wait for their MLS, as in
+   *        {@link #getAllForArchival(int, boolean)}.
+   * @param aParams
+   *        The parameters to which the values of the placeholders of the condition are appended.
+   *        May not be <code>null</code>.
+   * @return The SQL condition without a leading <code>AND</code>. Never <code>null</code>.
+   */
+  @NonNull
+  static String getArchivalCondition (final boolean bExcludeMlsPending,
+                                      @NonNull final ConstantPreparedStatementDataProvider aParams)
+  {
+    aParams.addValue (EInboundStatus.REJECTED.getID ())
+           .addValue (EInboundStatus.FORWARDED.getID ())
+           .addValue (EInboundStatus.PERMANENTLY_FAILED.getID ())
+           .addValue (EInboundStatus.NOT_FORWARDED.getID ())
+           .addValue (EReportingStatus.REPORTED.getID ())
+           .addValue (EReportingStatus.EXCLUDED.getID ());
+    String ret = "status IN (?,?,?,?) AND reporting_status IN (?,?)";
+    if (bExcludeMlsPending)
+    {
+      // Same criteria as getAllForMlsApiTimeout
+      ret += " AND NOT (status=? AND mls_response_code IS NULL" +
+             " AND mls_type <> ?" +
+             " AND NOT (doc_type_id=? AND process_id=?)" +
+             " AND NOT (doc_type_id=? AND process_id=?)" +
+             " AND (verification_result IS NULL OR verification_result <> ?))";
+      aParams.addValue (EInboundStatus.FORWARDED.getID ())
+             .addValue (EPeppolMLSType.FAILURE_ONLY.getID ())
+             .addValue (EPredefinedDocumentTypeIdentifier.PEPPOL_MLS_1_0.getURIEncoded ())
+             .addValue (EPredefinedProcessIdentifier.urn_peppol_edec_mls.getURIEncoded ())
+             .addValue (EPredefinedDocumentTypeIdentifier.APPLICATIONRESPONSE_FDC_PEPPOL_EU_POACC_TRNS_MLR_3.getURIEncoded ())
+             .addValue (EPredefinedProcessIdentifier.BIS3_MLR.getURIEncoded ())
+             .addValue (EVerificationResult.REJECTED.getID ());
+    }
+    return ret;
+  }
+
   /** {@inheritDoc} */
   @Nullable
   public String create (@NonNull final String sIncomingID,
@@ -599,36 +642,14 @@ public class InboundTransactionManagerJdbc extends AbstractAPJdbcManager impleme
   {
     ValueEnforcer.isGT0 (nBatchSize, "BatchSize");
 
-    final ConstantPreparedStatementDataProvider aParams = new ConstantPreparedStatementDataProvider (EInboundStatus.REJECTED.getID (),
-                                                                                                    EInboundStatus.FORWARDED.getID (),
-                                                                                                    EInboundStatus.PERMANENTLY_FAILED.getID (),
-                                                                                                    EInboundStatus.NOT_FORWARDED.getID (),
-                                                                                                    EReportingStatus.REPORTED.getID (),
-                                                                                                    EReportingStatus.EXCLUDED.getID ());
-    String sMlsPendingCondition = "";
-    if (bExcludeMlsPending)
-    {
-      // Same criteria as getAllForMlsApiTimeout
-      sMlsPendingCondition = " AND NOT (status=? AND mls_response_code IS NULL" +
-                             " AND mls_type <> ?" +
-                             " AND NOT (doc_type_id=? AND process_id=?)" +
-                             " AND NOT (doc_type_id=? AND process_id=?)" +
-                             " AND (verification_result IS NULL OR verification_result <> ?))";
-      aParams.addValue (EInboundStatus.FORWARDED.getID ())
-             .addValue (EPeppolMLSType.FAILURE_ONLY.getID ())
-             .addValue (EPredefinedDocumentTypeIdentifier.PEPPOL_MLS_1_0.getURIEncoded ())
-             .addValue (EPredefinedProcessIdentifier.urn_peppol_edec_mls.getURIEncoded ())
-             .addValue (EPredefinedDocumentTypeIdentifier.APPLICATIONRESPONSE_FDC_PEPPOL_EU_POACC_TRNS_MLR_3.getURIEncoded ())
-             .addValue (EPredefinedProcessIdentifier.BIS3_MLR.getURIEncoded ())
-             .addValue (EVerificationResult.REJECTED.getID ());
-    }
-
+    final ConstantPreparedStatementDataProvider aParams = new ConstantPreparedStatementDataProvider ();
+    final String sCondition = getArchivalCondition (bExcludeMlsPending, aParams);
     final ICommonsList <DBResultRow> aRows = newExecutor ().queryAll ("SELECT " +
                                                                       COLS +
                                                                       " FROM " +
                                                                       m_sTableName +
-                                                                      " WHERE status IN (?,?,?,?) AND reporting_status IN (?,?)" +
-                                                                      sMlsPendingCondition +
+                                                                      " WHERE " +
+                                                                      sCondition +
                                                                       " ORDER BY completed_dt" +
                                                                       " LIMIT " +
                                                                       nBatchSize,

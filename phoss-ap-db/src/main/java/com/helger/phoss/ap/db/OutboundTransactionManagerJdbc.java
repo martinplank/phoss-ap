@@ -78,6 +78,27 @@ public class OutboundTransactionManagerJdbc extends AbstractAPJdbcManager implem
     m_sTableName = sTableNamePrefix + "outbound_transaction";
   }
 
+  /**
+   * Get the SQL condition that an outbound transaction must fulfil to be archived. It is shared by
+   * {@link #getAllForArchival(int)} and the archival itself, so that the archival re-checks exactly
+   * the criteria of the candidate selection.
+   *
+   * @param aParams
+   *        The parameters to which the values of the placeholders of the condition are appended.
+   *        May not be <code>null</code>.
+   * @return The SQL condition without a leading <code>AND</code>. Never <code>null</code>.
+   */
+  @NonNull
+  static String getArchivalCondition (@NonNull final ConstantPreparedStatementDataProvider aParams)
+  {
+    aParams.addValue (EOutboundStatus.REJECTED.getID ())
+           .addValue (EOutboundStatus.SENT.getID ())
+           .addValue (EOutboundStatus.PERMANENTLY_FAILED.getID ())
+           .addValue (EReportingStatus.REPORTED.getID ())
+           .addValue (EReportingStatus.EXCLUDED.getID ());
+    return "status IN (?,?,?) AND reporting_status IN (?,?)";
+  }
+
   /** {@inheritDoc} */
   @Nullable
   public String create (@NonNull final ETransactionType eTransactionType,
@@ -408,19 +429,18 @@ public class OutboundTransactionManagerJdbc extends AbstractAPJdbcManager implem
   @ReturnsMutableCopy
   public ICommonsList <IOutboundTransaction> getAllForArchival (@Nonnegative final int nBatchSize)
   {
+    final ConstantPreparedStatementDataProvider aParams = new ConstantPreparedStatementDataProvider ();
+    final String sCondition = getArchivalCondition (aParams);
     final ICommonsList <DBResultRow> aRows = newExecutor ().queryAll ("SELECT " +
                                                                       COLS +
                                                                       " FROM " +
                                                                       m_sTableName +
-                                                                      " WHERE status IN (?,?,?) AND reporting_status IN (?,?)" +
+                                                                      " WHERE " +
+                                                                      sCondition +
                                                                       " ORDER BY completed_dt" +
                                                                       " LIMIT " +
                                                                       nBatchSize,
-                                                                      new ConstantPreparedStatementDataProvider (EOutboundStatus.REJECTED.getID (),
-                                                                                                                 EOutboundStatus.SENT.getID (),
-                                                                                                                 EOutboundStatus.PERMANENTLY_FAILED.getID (),
-                                                                                                                 EReportingStatus.REPORTED.getID (),
-                                                                                                                 EReportingStatus.EXCLUDED.getID ()));
+                                                                      aParams);
     final ICommonsList <IOutboundTransaction> ret = new CommonsArrayList <> ();
     if (aRows != null)
       for (final DBResultRow aRow : aRows)

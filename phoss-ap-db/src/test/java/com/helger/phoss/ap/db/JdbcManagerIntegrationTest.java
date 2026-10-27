@@ -1624,6 +1624,7 @@ public final class JdbcManagerIntegrationTest
                         null,
                         null);
     aTxMgr.updateStatusCompleted (sTxID, EOutboundStatus.SENT);
+    aTxMgr.updateReportingStatus (sTxID, EReportingStatus.REPORTED);
 
     assertNotNull (aTxMgr.getByIDIncludingArchive (sTxID));
 
@@ -1691,16 +1692,76 @@ public final class JdbcManagerIntegrationTest
 
     assertFalse (_onOtherConnectionWhileRowLocked ("inbound_transaction",
                                                    sTxID,
-                                                   () -> aArchivalMgr.archiveInboundTransaction (sTxID)).isSuccess ());
+                                                   () -> aArchivalMgr.archiveInboundTransaction (sTxID, false)).isSuccess ());
     assertNotNull (aTxMgr.getByID (sTxID));
 
-    assertTrue (aArchivalMgr.archiveInboundTransaction (sTxID).isSuccess ());
+    assertTrue (aArchivalMgr.archiveInboundTransaction (sTxID, false).isSuccess ());
     assertNull (aTxMgr.getByID (sTxID));
-    assertFalse (_onOtherConnection ( () -> aArchivalMgr.archiveInboundTransaction (sTxID)).isSuccess ());
+    assertFalse (_onOtherConnection ( () -> aArchivalMgr.archiveInboundTransaction (sTxID, false)).isSuccess ());
 
     final IInboundTransaction aArchived = aTxMgr.getBySbdhInstanceIDIncludingArchive (sSbdhID);
     assertNotNull (aArchived);
     assertEquals (sTxID, aArchived.getID ());
+  }
+
+  @Test
+  public void testArchiveOutboundTransactionNoLongerEligible ()
+  {
+    final IOutboundTransactionManager aTxMgr = APJdbcMetaManager.getOutboundTransactionMgr ();
+    final IArchivalManager aArchivalMgr = APJdbcMetaManager.getArchivalMgr ();
+
+    final String sTxID = _createOutboundTx ();
+    aTxMgr.updateStatusCompleted (sTxID, EOutboundStatus.SENT);
+    assertFalse (aArchivalMgr.archiveOutboundTransaction (sTxID).isSuccess ());
+
+    aTxMgr.updateReportingStatus (sTxID, EReportingStatus.REPORTED);
+    assertTrue (aTxMgr.getAllForArchival (1000).containsAny (x -> x.getID ().equals (sTxID)));
+
+    // Changed after it was selected
+    aTxMgr.updateStatus (sTxID, EOutboundStatus.SENDING);
+    assertFalse (aArchivalMgr.archiveOutboundTransaction (sTxID).isSuccess ());
+    assertNotNull (aTxMgr.getByID (sTxID));
+  }
+
+  @Test
+  public void testArchiveInboundTransactionNoLongerEligible ()
+  {
+    final IInboundTransactionManager aTxMgr = APJdbcMetaManager.getInboundTransactionMgr ();
+    final IArchivalManager aArchivalMgr = APJdbcMetaManager.getArchivalMgr ();
+
+    final String sTxID = _createInboundTx ();
+    aTxMgr.updateStatusCompleted (sTxID, EInboundStatus.FORWARDED);
+    assertFalse (aArchivalMgr.archiveInboundTransaction (sTxID, false).isSuccess ());
+
+    aTxMgr.updateReportingStatus (sTxID, EReportingStatus.REPORTED);
+    assertTrue (aTxMgr.getAllForArchival (1000, false).containsAny (x -> x.getID ().equals (sTxID)));
+
+    // Changed after it was selected, e.g. by a replay
+    aTxMgr.updateStatus (sTxID, EInboundStatus.FORWARDING);
+    assertFalse (aArchivalMgr.archiveInboundTransaction (sTxID, false).isSuccess ());
+    assertNotNull (aTxMgr.getByID (sTxID));
+  }
+
+  @Test
+  public void testArchiveInboundTransactionMlsPendingAgain ()
+  {
+    final IInboundTransactionManager aTxMgr = APJdbcMetaManager.getInboundTransactionMgr ();
+    final IArchivalManager aArchivalMgr = APJdbcMetaManager.getArchivalMgr ();
+
+    final String sTxID = _createInboundTx ();
+    aTxMgr.updateStatusCompleted (sTxID, EInboundStatus.FORWARDED);
+    aTxMgr.updateReportingStatus (sTxID, EReportingStatus.REPORTED);
+    assertTrue (aTxMgr.claimMlsResponseCode (sTxID, EPeppolMLSResponseCode.ACKNOWLEDGING).isSuccess ());
+    assertTrue (aTxMgr.getAllForArchival (1000, true).containsAny (x -> x.getID ().equals (sTxID)));
+
+    // Sending the MLS failed after the selection, so it waits for its MLS again
+    assertTrue (aTxMgr.releaseMlsResponseCodeClaim (sTxID).isSuccess ());
+    assertFalse (aArchivalMgr.archiveInboundTransaction (sTxID, true).isSuccess ());
+    assertNotNull (aTxMgr.getByID (sTxID));
+
+    // Without the MLS exclusion it is eligible
+    assertTrue (aArchivalMgr.archiveInboundTransaction (sTxID, false).isSuccess ());
+    assertNull (aTxMgr.getByID (sTxID));
   }
 
   @Test
@@ -1715,8 +1776,9 @@ public final class JdbcManagerIntegrationTest
 
     aAttemptMgr.createSuccess (sTxID);
     aTxMgr.updateStatusCompleted (sTxID, EInboundStatus.FORWARDED);
+    aTxMgr.updateReportingStatus (sTxID, EReportingStatus.REPORTED);
 
-    assertTrue (aArchivalMgr.archiveInboundTransaction (sTxID).isSuccess ());
+    assertTrue (aArchivalMgr.archiveInboundTransaction (sTxID, false).isSuccess ());
 
     assertNull (aTxMgr.getByID (sTxID));
     assertTrue (aAttemptMgr.getByTransactionID (sTxID).isEmpty ());
@@ -1737,10 +1799,11 @@ public final class JdbcManagerIntegrationTest
     final String sOutboundTxID = _uniqueID ();
     assertTrue (aTxMgr.updateMlsCorrelatedOutboundTransactionID (sTxID, sOutboundTxID).isSuccess ());
     aTxMgr.updateStatusCompleted (sTxID, EInboundStatus.FORWARDED);
+    aTxMgr.updateReportingStatus (sTxID, EReportingStatus.REPORTED);
 
     // Archival copies rows with "INSERT INTO ..._archive SELECT * FROM ...", so a column order
     // mismatch between the two tables would surface here
-    assertTrue (aArchivalMgr.archiveInboundTransaction (sTxID).isSuccess ());
+    assertTrue (aArchivalMgr.archiveInboundTransaction (sTxID, false).isSuccess ());
     assertNull (aTxMgr.getByID (sTxID));
 
     final IInboundTransaction aArchived = aTxMgr.getBySbdhInstanceIDIncludingArchive (sSbdhInstanceID);
@@ -1788,6 +1851,7 @@ public final class JdbcManagerIntegrationTest
 
     // Archive the transaction
     aTxMgr.updateStatusCompleted (sTxID, EOutboundStatus.SENT);
+    aTxMgr.updateReportingStatus (sTxID, EReportingStatus.REPORTED);
     assertTrue (aArchivalMgr.archiveOutboundTransaction (sTxID).isSuccess ());
 
     // Active-only lookup returns null; including-archive returns the archived row
@@ -1847,7 +1911,8 @@ public final class JdbcManagerIntegrationTest
     // Archive the transaction
     aAttemptMgr.createSuccess (sTxID);
     aTxMgr.updateStatusCompleted (sTxID, EInboundStatus.FORWARDED);
-    assertTrue (aArchivalMgr.archiveInboundTransaction (sTxID).isSuccess ());
+    aTxMgr.updateReportingStatus (sTxID, EReportingStatus.REPORTED);
+    assertTrue (aArchivalMgr.archiveInboundTransaction (sTxID, false).isSuccess ());
 
     // Active-only lookup returns null; including-archive returns the archived row
     assertNull (aTxMgr.getBySbdhInstanceID (sSbdhID));
