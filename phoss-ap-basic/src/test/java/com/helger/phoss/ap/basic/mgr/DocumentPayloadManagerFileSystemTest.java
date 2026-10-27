@@ -16,8 +16,8 @@
  */
 package com.helger.phoss.ap.basic.mgr;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -106,6 +106,11 @@ public final class DocumentPayloadManagerFileSystemTest extends AbstractDocument
     assertEquals ("IM_2026_10_4807678.sbd",
                   DocumentPayloadManagerFileSystem.getSafeFilename ("IM 2026/10/4807678.sbd"));
     assertEquals ("plain.sbd", DocumentPayloadManagerFileSystem.getSafeFilename ("plain.sbd"));
+    // Nothing remains of the SBDH Instance Identifier, but the extension survives
+    assertEquals ("sbd", DocumentPayloadManagerFileSystem.getSafeFilename ("....sbd"));
+    // Only reachable for a filename without extension, e.g. via openDocumentStreamForWrite
+    assertEquals (DocumentPayloadManagerFileSystem.FALLBACK_FILENAME, DocumentPayloadManagerFileSystem.getSafeFilename ("..."));
+    assertEquals (DocumentPayloadManagerFileSystem.FALLBACK_FILENAME, DocumentPayloadManagerFileSystem.getSafeFilename (""));
   }
 
   @Test

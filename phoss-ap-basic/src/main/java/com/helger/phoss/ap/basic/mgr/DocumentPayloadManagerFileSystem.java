@@ -36,9 +36,9 @@ import com.helger.base.exception.InitializationException;
 import com.helger.base.io.stream.StreamHelper;
 import com.helger.base.string.StringHelper;
 import com.helger.io.file.FileHelper;
-import com.helger.io.file.FilenameHelper;
 import com.helger.io.file.FileOperationManager;
 import com.helger.io.file.IFileOperationManager;
+import com.helger.phoss.ap.api.APFilenameHelper;
 import com.helger.phoss.ap.api.mgr.IDocumentPayloadManager;
 import com.helger.phoss.ap.basic.APBasicConfig;
 
@@ -52,6 +52,8 @@ public class DocumentPayloadManagerFileSystem implements IDocumentPayloadManager
 {
   private static final Logger LOGGER = LoggerFactory.getLogger (DocumentPayloadManagerFileSystem.class);
   private static final int MAX_UNIQUENESS_TRIES = 1_000;
+  /** The filename to be used if nothing usable remains of the provided filename */
+  static final String FALLBACK_FILENAME = "document";
 
   /**
    * Default constructor.
@@ -114,9 +116,9 @@ public class DocumentPayloadManagerFileSystem implements IDocumentPayloadManager
    * {@link Path#resolve(String)} treats those as nested directories and {@link Files#write} fails
    * with {@link java.nio.file.NoSuchFileException} because only the hour directory is created.
    * <p>
-   * Rules match {@code ForwardingFilenamePattern}: keep letters, digits, {@code '.'}, {@code '-'}
-   * and {@code '_'}; replace everything else with {@code '_'}. Then apply
-   * {@link FilenameHelper#getAsSecureValidASCIIFilename(String)} for Windows reserved names.
+   * See {@link APFilenameHelper#getAsSafeFilename(String)} for the rules. If nothing usable remains
+   * (e.g. for an SBDH Instance Identifier consisting of dots only), {@value #FALLBACK_FILENAME} is
+   * used instead.
    *
    * @param sFilename
    *        The raw filename. May not be <code>null</code>.
@@ -128,24 +130,8 @@ public class DocumentPayloadManagerFileSystem implements IDocumentPayloadManager
   {
     ValueEnforcer.notNull (sFilename, "Filename");
 
-    final StringBuilder aSafe = new StringBuilder (sFilename.length ());
-    for (final char c : sFilename.toCharArray ())
-      if ((c >= 'a' && c <= 'z') ||
-          (c >= 'A' && c <= 'Z') ||
-          (c >= '0' && c <= '9') ||
-          c == '.' ||
-          c == '-' ||
-          c == '_')
-        aSafe.append (c);
-      else
-        aSafe.append ('_');
-
-    // Strip leading dots so the file is not hidden from pollers; fall back if nothing usable remains
-    String sSafe = StringHelper.trimStartRepeatedly (aSafe.toString (), '.');
-    sSafe = FilenameHelper.getAsSecureValidASCIIFilename (sSafe);
-    if (StringHelper.isEmpty (sSafe))
-      return "document";
-    return sSafe;
+    final String sSafe = APFilenameHelper.getAsSafeFilename (sFilename);
+    return StringHelper.isEmpty (sSafe) ? FALLBACK_FILENAME : sSafe;
   }
 
   /**
